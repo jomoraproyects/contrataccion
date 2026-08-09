@@ -58,6 +58,7 @@ class ProcesoSeleccion(models.Model):
     nombre = models.CharField(max_length=100)
     apellidos = models.CharField(max_length=120)
     cedula = models.CharField("número de cédula", max_length=30, db_index=True)
+    cedula_proceso_abierto = models.CharField(max_length=30, unique=True, null=True, blank=True, editable=False)
     celular = models.CharField("número de celular", max_length=30)
     fecha_llegada = models.DateField("fecha de llegada de la hoja de vida")
     vacante = models.CharField("vacante o área", max_length=150)
@@ -91,17 +92,21 @@ class ProcesoSeleccion(models.Model):
                 | Q(etapa_actual__in=["RRHH", "PSICOLOGIA", "SEGURIDAD"], estado="EN_CURSO")
             ),
             name="estado_coherente_con_etapa",
-        ), models.UniqueConstraint(
-            fields=["cedula"],
-            condition=Q(
-                activo=True,
-                estado__in=["EN_CURSO", "LISTO_CONTRATACION"],
-            ),
-            name="una_postulacion_abierta_por_cedula",
         )]
 
     def __str__(self):
         return f"{self.nombre} {self.apellidos} - {self.vacante}"
+
+    @property
+    def proceso_abierto(self):
+        return self.activo and self.estado in (self.Estado.EN_CURSO, self.Estado.LISTO_CONTRATACION)
+
+    def save(self, *args, **kwargs):
+        """Mantiene una cédula única para procesos abiertos en MySQL y SQLite."""
+        self.cedula_proceso_abierto = self.cedula if self.proceso_abierto else None
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"cedula_proceso_abierto"}
+        return super().save(*args, **kwargs)
 
     @property
     def nombre_completo(self):

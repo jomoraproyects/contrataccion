@@ -3,7 +3,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
-from django.db import connection
+from django.db import IntegrityError, connection
 from django.db.models import Count, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
@@ -258,7 +258,11 @@ def crear_proceso(request):
     if request.method == "POST" and form.is_valid():
         proceso = form.save(commit=False)
         proceso.creado_por = request.user
-        proceso.save()
+        try:
+            proceso.save()
+        except IntegrityError:
+            form.add_error("cedula", "Esta cédula ya tiene otro proceso abierto.")
+            return render(request, "procesos/formulario.html", {"form": form})
         messages.success(request, "El proceso fue creado y enviado a Talento Humano.")
         return redirect("procesos:detalle", pk=proceso.pk)
     return render(request, "procesos/formulario.html", {"form": form})
@@ -353,7 +357,16 @@ def cambiar_actividad_proceso(request, pk):
         proceso.activo = not proceso.activo
         proceso.archivado_en = None if proceso.activo else timezone.now()
         proceso.archivado_por = None if proceso.activo else request.user
-        proceso.save(update_fields=["activo", "archivado_en", "archivado_por", "actualizado_en"])
+        try:
+            proceso.save(update_fields=["activo", "archivado_en", "archivado_por", "actualizado_en"])
+        except IntegrityError:
+            form.add_error(None, "No se puede restaurar: esta cédula ya tiene otro proceso abierto.")
+            return render(request, "procesos/proceso_confirmar.html", {
+                "form": form, "proceso": proceso, "accion": accion,
+                "titulo": f"{accion.title()} candidato",
+                "descripcion": "El historial y las decisiones se conservarán.",
+                "texto_boton": accion.title(), "peligrosa": proceso.activo,
+            })
         if proceso.activo:
             seguimiento_abierto = proceso.seguimientos.filter(fin__isnull=True).first()
             if seguimiento_abierto and archivado_desde:

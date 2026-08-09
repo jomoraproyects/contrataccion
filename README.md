@@ -28,7 +28,7 @@ Permite registrar candidatos, llevarlos por Talento Humano, Psicología, Segurid
 
 - Python y Django con templates.
 - Bootstrap y JavaScript.
-- SQLite para desarrollo y PostgreSQL para producción.
+- SQLite para desarrollo y MySQL 8+ para producción.
 - Gunicorn y Nginx para el VPS.
 - WhiteNoise y `holidays`.
 

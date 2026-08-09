@@ -8,20 +8,21 @@ jobs:
   django:
     runs-on: ubuntu-latest
     services:
-      postgres:
-        image: postgres:17-alpine
+      mysql:
+        image: mysql:8.4
         env:
-          POSTGRES_DB: seleccion_test
-          POSTGRES_USER: seleccion
-          POSTGRES_PASSWORD: test-no-produccion
-        ports: ["5432:5432"]
+          MYSQL_DATABASE: seleccion_test
+          MYSQL_USER: seleccion
+          MYSQL_PASSWORD: test-no-produccion
+          MYSQL_ROOT_PASSWORD: root-no-produccion
+        ports: ["3306:3306"]
         options: >-
-          --health-cmd "pg_isready -U seleccion -d seleccion_test"
+          --health-cmd "mysqladmin ping -h localhost -uroot -proot-no-produccion"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
       SECRET_KEY: clave-exclusiva-para-pruebas-automatizadas
       DEBUG: "True"
-      DATABASE_URL: postgresql://seleccion:test-no-produccion@127.0.0.1:5432/seleccion_test
+      DATABASE_URL: mysql://seleccion:test-no-produccion@127.0.0.1:3306/seleccion_test
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5

@@ -12,8 +12,4 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddConstraint(
-            model_name='procesoseleccion',
-            constraint=models.UniqueConstraint(condition=models.Q(('activo', True), ('estado__in', ['EN_CURSO', 'LISTO_CONTRATACION'])), fields=('cedula',), name='una_postulacion_abierta_por_cedula'),
-        ),
     ]

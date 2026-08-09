@@ -20,7 +20,7 @@ CSRF_TRUSTED_ORIGINS = [u.strip() for u in os.environ.get("CSRF_TRUSTED_ORIGINS"
 DATABASE_URL = os.environ.get("DATABASE_URL")
 TRUST_PROXY_HEADERS = env_bool("TRUST_PROXY_HEADERS", False)
 if not DEBUG and not DATABASE_URL:
-    raise ImproperlyConfigured("Debe configurar DATABASE_URL con PostgreSQL en producción.")
+    raise ImproperlyConfigured("Debe configurar DATABASE_URL con MySQL en producción.")
 if not DEBUG and set(ALLOWED_HOSTS) <= {"localhost", "127.0.0.1"}:
     raise ImproperlyConfigured("Debe configurar ALLOWED_HOSTS con el dominio de producción.")
 
@@ -68,6 +68,11 @@ DATABASES = {
         conn_health_checks=True,
     )
 }
+if DATABASES["default"]["ENGINE"] == "django.db.backends.mysql":
+    DATABASES["default"].setdefault("OPTIONS", {}).update({
+        "charset": "utf8mb4",
+        "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+    })
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

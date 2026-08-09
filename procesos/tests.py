@@ -6,6 +6,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.exceptions import ValidationError
+from django.db import IntegrityError
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -437,6 +438,14 @@ class FlujoProcesoTests(TestCase):
         })
         self.assertContains(response, "ya tiene un proceso abierto")
         self.assertEqual(ProcesoSeleccion.objects.filter(cedula="12345").count(), 1)
+
+    def test_base_de_datos_protege_la_cedula_abierta_ante_concurrencia(self):
+        with self.assertRaises(IntegrityError):
+            ProcesoSeleccion.objects.create(
+                nombre="Ana", apellidos="Duplicada", cedula="12345", celular="3009876543",
+                fecha_llegada=date.today(), vacante="Ventas",
+                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            )
 
     def test_permite_nueva_postulacion_cuando_el_proceso_anterior_finalizo(self):
         self.proceso.registrar_decision(

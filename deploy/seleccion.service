@@ -1,6 +1,6 @@
 [Unit]
 Description=Procesos de contratación Django
-After=network.target postgresql.service
+After=network.target mysql.service
 
 [Service]
 Type=notify
