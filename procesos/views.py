@@ -3,8 +3,8 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
-from django.db import IntegrityError, connection
-from django.db.models import Count, Q
+from django.db import IntegrityError, connection, transaction
+from django.db.models import Count, Prefetch, Q
 from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
@@ -17,6 +17,7 @@ from .forms import (
     EditarProcesoGerenciaForm,
     EditarUsuarioOperativoForm,
     ProcesoForm,
+    TrazabilidadFiltroForm,
     UsuarioOperativoForm,
 )
 from .calendario import segundos_habiles_entre, sumar_segundos_habiles
@@ -188,36 +189,131 @@ def lista_procesos(request):
 @login_required
 def trazabilidad(request):
     _exigir_gerente(request.user)
-    abiertos = list(SeguimientoEtapa.objects.filter(
-        fin__isnull=True, proceso__activo=True,
-    ).select_related("proceso").order_by("fecha_limite"))
+    formulario = TrazabilidadFiltroForm(request.GET or None)
+    procesos_qs = ProcesoSeleccion.objects.select_related("creado_por").prefetch_related(
+        Prefetch(
+            "seguimientos",
+            queryset=SeguimientoEtapa.objects.select_related("cerrado_por").order_by("inicio"),
+        ),
+    )
+    if formulario.is_valid():
+        datos = formulario.cleaned_data
+        q = datos.get("q", "").strip()
+        if q:
+            for termino in q.split():
+                procesos_qs = procesos_qs.filter(
+                    Q(nombre__icontains=termino)
+                    | Q(apellidos__icontains=termino)
+                    | Q(cedula__icontains=termino)
+                )
+        if datos.get("fecha_desde"):
+            procesos_qs = procesos_qs.filter(fecha_llegada__gte=datos["fecha_desde"])
+        if datos.get("fecha_hasta"):
+            procesos_qs = procesos_qs.filter(fecha_llegada__lte=datos["fecha_hasta"])
+        if datos.get("estado"):
+            procesos_qs = procesos_qs.filter(estado=datos["estado"])
+        if datos.get("etapa"):
+            procesos_qs = procesos_qs.filter(etapa_actual=datos["etapa"])
+        if datos.get("vacante"):
+            procesos_qs = procesos_qs.filter(vacante__icontains=datos["vacante"].strip())
+
+    procesos = list(procesos_qs)
+    for proceso in procesos:
+        seguimientos = list(proceso.seguimientos.all())
+        proceso.traza_seguimientos = seguimientos
+        proceso.traza_abierto = next((item for item in seguimientos if item.fin is None), None)
+        proceso.traza_total_horas = round(sum(item.duracion_horas for item in seguimientos), 1)
+        proceso.traza_mas_lenta = max(seguimientos, key=lambda item: item.duracion_horas, default=None)
+        proceso.traza_fuera_tiempo = sum(item.esta_vencido for item in seguimientos)
+        if proceso.traza_abierto:
+            proceso.traza_estado_plazo = proceso.traza_abierto.estado_plazo
+            proceso.traza_clase_plazo = proceso.traza_abierto.clase_plazo
+        else:
+            proceso.traza_estado_plazo = "Proceso finalizado"
+            proceso.traza_clase_plazo = "secondary"
+
+    situacion = formulario.cleaned_data.get("situacion", "") if formulario.is_valid() else ""
+    if situacion == "vencidos":
+        procesos = [p for p in procesos if p.traza_abierto and p.traza_abierto.esta_vencido]
+    elif situacion == "por_vencer":
+        procesos = [
+            p for p in procesos
+            if p.traza_abierto and not p.traza_abierto.esta_vencido and p.traza_abierto.dias_restantes <= 1
+        ]
+    elif situacion == "con_retrasos":
+        procesos = [p for p in procesos if p.traza_fuera_tiempo]
+    elif situacion == "sin_retrasos":
+        procesos = [p for p in procesos if not p.traza_fuera_tiempo]
+
+    orden = formulario.cleaned_data.get("orden") if formulario.is_valid() else "recientes"
+    if orden == "demora":
+        procesos.sort(key=lambda p: (p.traza_total_horas, p.fecha_llegada), reverse=True)
+    elif orden == "vencimiento":
+        procesos.sort(key=lambda p: (
+            p.traza_abierto is None,
+            p.traza_abierto.fecha_limite if p.traza_abierto else p.actualizado_en,
+        ))
+    elif orden == "nombre":
+        procesos.sort(key=lambda p: p.nombre_completo.casefold())
+    else:
+        procesos.sort(key=lambda p: (p.fecha_llegada, p.creado_en), reverse=True)
+
+    seguimientos_filtrados = [item for proceso in procesos for item in proceso.traza_seguimientos]
+    abiertos = sorted(
+        [item for item in seguimientos_filtrados if item.fin is None and item.proceso.activo],
+        key=lambda item: item.fecha_limite,
+    )
     vencidos = [item for item in abiertos if item.esta_vencido]
     por_vencer = [item for item in abiertos if not item.esta_vencido and item.dias_restantes <= 1]
     en_plazo = [item for item in abiertos if item not in vencidos and item not in por_vencer]
     metricas = []
     for valor, etiqueta in ProcesoSeleccion.Etapa.choices:
-        cerrados = list(SeguimientoEtapa.objects.filter(etapa=valor, fin__isnull=False).exclude(
-            resultado=SeguimientoEtapa.Resultado.AJUSTADO
-        ))
-        promedio = round(sum(item.duracion_horas for item in cerrados) / len(cerrados), 1) if cerrados else None
+        todos_etapa = [item for item in seguimientos_filtrados if item.etapa == valor]
+        abiertos_etapa = [item for item in todos_etapa if item.fin is None]
+        cerrados = [
+            item for item in todos_etapa
+            if item.fin is not None and item.resultado != SeguimientoEtapa.Resultado.AJUSTADO
+        ]
+        medidos = [item for item in todos_etapa if item.resultado != SeguimientoEtapa.Resultado.AJUSTADO]
+        promedio = round(sum(item.duracion_horas for item in medidos) / len(medidos), 1) if medidos else None
         a_tiempo = sum(not item.esta_vencido for item in cerrados)
         metricas.append({
+            "valor": valor,
             "etapa": etiqueta,
             "plazo": SeguimientoEtapa(proceso_id=0, etapa=valor).plazo_dias,
             "promedio_horas": promedio,
             "cumplimiento": round(a_tiempo * 100 / len(cerrados)) if cerrados else None,
             "finalizados": len(cerrados),
+            "medidos": len(medidos),
+            "abiertos": len(abiertos_etapa),
+            "vencidos": sum(item.esta_vencido for item in abiertos_etapa),
         })
-    recientes = SeguimientoEtapa.objects.filter(fin__isnull=False).select_related(
-        "proceso", "cerrado_por"
-    ).order_by("-fin")[:50]
+    cuello_botella = max(
+        (metrica for metrica in metricas if metrica["promedio_horas"] is not None),
+        key=lambda metrica: metrica["promedio_horas"],
+        default=None,
+    )
+    if cuello_botella:
+        cuello_botella["es_cuello_botella"] = True
+
+    pagina = Paginator(procesos, 20).get_page(request.GET.get("page"))
+    parametros = request.GET.copy()
+    parametros.pop("page", None)
     return render(request, "procesos/trazabilidad.html", {
+        "formulario_filtros": formulario,
+        "procesos": pagina,
+        "page_obj": pagina,
+        "querystring": parametros.urlencode(),
+        "total_procesos": len(procesos),
+        "procesos_con_retrasos": sum(bool(p.traza_fuera_tiempo) for p in procesos),
+        "procesos_finalizados": sum(p.esta_finalizado for p in procesos),
         "abiertos": abiertos,
         "vencidos": vencidos,
         "por_vencer": por_vencer,
         "en_plazo": en_plazo,
         "metricas": metricas,
-        "recientes": recientes,
+        "cuello_botella": cuello_botella,
+        "hay_filtros": any(request.GET.get(nombre) for nombre in formulario.fields if nombre != "orden"),
     })
 
 
@@ -261,7 +357,8 @@ def crear_proceso(request):
         proceso = form.save(commit=False)
         proceso.creado_por = request.user
         try:
-            proceso.save()
+            with transaction.atomic():
+                proceso.save()
         except IntegrityError:
             form.add_error("cedula", "Esta cédula ya tiene otro proceso abierto.")
             return render(request, "procesos/formulario.html", {"form": form})
@@ -368,6 +465,7 @@ def cambiar_actividad_proceso(request, pk):
         try:
             proceso.save(update_fields=["activo", "archivado_en", "archivado_por", "actualizado_en"])
         except IntegrityError:
+            proceso.refresh_from_db()
             form.add_error(None, "No se puede restaurar: esta cédula ya tiene otro proceso abierto.")
             return render(request, "procesos/proceso_confirmar.html", {
                 "form": form, "proceso": proceso, "accion": accion,

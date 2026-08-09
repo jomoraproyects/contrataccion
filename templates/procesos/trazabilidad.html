@@ -1,13 +1,93 @@
 {% extends "base.html" %}
-{% block title %}Trazabilidad de tiempos{% endblock %}
+{% block title %}Trazabilidad de procesos{% endblock %}
 {% block content %}
-<div class="mb-4"><p class="eyebrow text-primary mb-1">Control de Gerencia</p><h1 class="display-6 fw-bold mb-1">Trazabilidad de tiempos</h1><p class="fs-5 text-body-secondary mb-0">Seguimiento en días hábiles; se excluyen sábados, domingos y festivos de Colombia.</p></div>
+<header class="mb-4">
+  <p class="eyebrow text-primary mb-1">Control de Gerencia</p>
+  <h1 class="display-6 fw-bold mb-1">Trazabilidad de procesos</h1>
+  <p class="fs-5 text-body-secondary mb-0">Consulte dónde está cada candidato, cuánto ha tardado y qué etapas concentran las mayores demoras.</p>
+</header>
 
-<section class="summary-grid mb-4" aria-label="Resumen de cumplimiento"><article class="summary-card summary-blue"><span class="summary-icon" aria-hidden="true">●</span><div><span>Etapas abiertas</span><strong>{{ abiertos|length }}</strong></div></article><article class="summary-card summary-green"><span class="summary-icon" aria-hidden="true">✓</span><div><span>En plazo</span><strong>{{ en_plazo|length }}</strong></div></article><article class="summary-card summary-amber"><span class="summary-icon" aria-hidden="true">!</span><div><span>Por vencer</span><strong>{{ por_vencer|length }}</strong></div></article><article class="summary-card summary-red"><span class="summary-icon" aria-hidden="true">×</span><div><span>Vencidas</span><strong>{{ vencidos|length }}</strong></div></article></section>
+<details class="card trace-filters border-0 mb-4" open>
+  <summary class="card-header bg-white p-3 fs-5 fw-bold">Filtros del análisis{% if hay_filtros %} <span class="badge text-bg-primary ms-2">Aplicados</span>{% endif %}</summary>
+  <form class="card-body row g-3" method="get" novalidate>
+    {% if formulario_filtros.non_field_errors %}<div class="col-12"><div class="alert alert-danger mb-0" role="alert">{{ formulario_filtros.non_field_errors }}</div></div>{% endif %}
+    {% for field in formulario_filtros %}
+      <div class="col-12 {% if field.name == 'q' or field.name == 'vacante' %}col-lg-3{% else %}col-md-6 col-lg-3{% endif %}">
+        <label class="form-label fw-semibold" for="{{ field.id_for_label }}">{{ field.label }}</label>
+        {{ field }}
+        {% for error in field.errors %}<div class="text-danger fw-semibold mt-1">{{ error }}</div>{% endfor %}
+      </div>
+    {% endfor %}
+    <div class="col-12 d-flex flex-column flex-sm-row justify-content-end gap-2 pt-2">
+      <a class="btn btn-outline-secondary btn-lg" href="{% url 'procesos:trazabilidad' %}">Limpiar filtros</a>
+      <button class="btn btn-primary btn-lg px-5" type="submit">Actualizar análisis</button>
+    </div>
+  </form>
+</details>
 
-<section class="sla-grid mb-4" aria-label="Indicadores por etapa">{% for metrica in metricas %}<article class="card border-0"><div class="card-body p-4"><p class="eyebrow text-primary mb-1">Plazo máximo: {{ metrica.plazo }} días hábiles</p><h2 class="h4 fw-bold">{{ metrica.etapa }}</h2>{% if metrica.promedio_horas != None %}<p class="display-6 fw-bold mb-0">{{ metrica.promedio_horas }} h</p><p class="text-body-secondary">Tiempo promedio · {{ metrica.cumplimiento }}% a tiempo · {{ metrica.finalizados }} finalizada{{ metrica.finalizados|pluralize }}</p>{% else %}<p class="text-body-secondary mb-0">Todavía no hay etapas finalizadas para calcular el promedio.</p>{% endif %}</div></article>{% endfor %}</section>
+<section class="summary-grid mb-4" aria-label="Resumen de trazabilidad">
+  <article class="summary-card summary-blue"><span class="summary-icon" aria-hidden="true">●</span><div><span>Procesos encontrados</span><strong>{{ total_procesos }}</strong></div></article>
+  <article class="summary-card summary-amber"><span class="summary-icon" aria-hidden="true">↻</span><div><span>Etapas abiertas</span><strong>{{ abiertos|length }}</strong></div></article>
+  <article class="summary-card summary-red"><span class="summary-icon" aria-hidden="true">!</span><div><span>Procesos con retrasos</span><strong>{{ procesos_con_retrasos }}</strong></div></article>
+  <article class="summary-card summary-green"><span class="summary-icon" aria-hidden="true">✓</span><div><span>Procesos finalizados</span><strong>{{ procesos_finalizados }}</strong></div></article>
+</section>
 
-<section class="card border-0 mb-4"><div class="card-body p-4"><h2 class="h3 fw-bold">Procesos actualmente en etapa</h2><p class="text-body-secondary">Los casos más urgentes aparecen primero.</p><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Candidato</th><th>Etapa</th><th>Asignado desde</th><th>Fecha límite</th><th>Estado del plazo</th><th></th></tr></thead><tbody>{% for seguimiento in abiertos %}<tr><td><strong>{{ seguimiento.proceso.nombre_completo }}</strong><div class="text-body-secondary">{{ seguimiento.proceso.vacante }}</div></td><td>{{ seguimiento.get_etapa_display }}</td><td>{{ seguimiento.inicio|date:"d/m/Y H:i" }}</td><td>{{ seguimiento.fecha_limite|date:"d/m/Y H:i" }}</td><td><span class="badge rounded-pill text-bg-{{ seguimiento.clase_plazo }}">{{ seguimiento.estado_plazo }}</span></td><td><a class="btn btn-outline-primary" href="{% url 'procesos:detalle' seguimiento.proceso.pk %}">Ver trazabilidad</a></td></tr>{% empty %}<tr><td colspan="6" class="text-center text-body-secondary py-5">No hay etapas abiertas.</td></tr>{% endfor %}</tbody></table></div></div></section>
+{% if cuello_botella %}
+<aside class="bottleneck-card card border-0 mb-4" aria-labelledby="titulo-cuello-botella">
+  <div class="card-body p-4 d-flex flex-column flex-lg-row justify-content-between gap-3">
+    <div><p class="eyebrow text-danger mb-1">Mayor demora promedio del periodo</p><h2 id="titulo-cuello-botella" class="h3 fw-bold mb-1">{{ cuello_botella.etapa }}</h2><p class="text-body-secondary mb-0">Promedio de {{ cuello_botella.promedio_horas }} horas hábiles en {{ cuello_botella.medidos }} etapa{{ cuello_botella.medidos|pluralize }} analizada{{ cuello_botella.medidos|pluralize }}; incluye las que siguen abiertas.</p></div>
+    <div class="bottleneck-value"><strong>{{ cuello_botella.promedio_horas }} h</strong><span>{% if cuello_botella.cumplimiento != None %}{{ cuello_botella.cumplimiento }}% a tiempo{% else %}Aún sin cierres{% endif %}</span></div>
+  </div>
+</aside>
+{% endif %}
 
-<section class="card border-0"><div class="card-body p-4"><h2 class="h3 fw-bold">Etapas finalizadas recientemente</h2><p class="text-body-secondary">Cada periodo inicia al asignarse el requerimiento y termina al registrar la decisión.</p><div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Candidato</th><th>Etapa</th><th>Periodo de gestión</th><th>Tiempo empleado</th><th>Resultado</th><th>Cumplimiento</th></tr></thead><tbody>{% for seguimiento in recientes %}<tr><td>{{ seguimiento.proceso.nombre_completo }}</td><td>{{ seguimiento.get_etapa_display }}{% if seguimiento.ciclo > 1 %} · Ciclo {{ seguimiento.ciclo }}{% endif %}</td><td><div class="management-period"><div><span>Inicio:</span><strong>{{ seguimiento.inicio|date:"d/m/Y H:i" }}</strong></div><div><span>Finalizó:</span><strong>{{ seguimiento.fin|date:"d/m/Y H:i" }}</strong></div></div></td><td><strong>{{ seguimiento.duracion_horas }} h</strong></td><td>{{ seguimiento.get_resultado_display }}</td><td><span class="badge rounded-pill text-bg-{{ seguimiento.clase_plazo }}">{{ seguimiento.estado_plazo }}</span></td></tr>{% empty %}<tr><td colspan="6" class="text-center text-body-secondary py-5">Todavía no hay etapas finalizadas.</td></tr>{% endfor %}</tbody></table></div></div></section>
+<section class="mb-4" aria-labelledby="titulo-indicadores-etapa">
+  <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3"><div><h2 id="titulo-indicadores-etapa" class="h3 fw-bold mb-1">Comportamiento por etapa</h2><p class="text-body-secondary mb-0">Los indicadores responden a los filtros aplicados arriba.</p></div><span class="text-body-secondary">Se excluyen sábados, domingos y festivos de Colombia</span></div>
+  <div class="sla-grid">
+    {% for metrica in metricas %}
+    <article class="card trace-stage-card border-0 {% if metrica.es_cuello_botella %}is-bottleneck{% endif %}">
+      <div class="card-body p-4">
+        <div class="d-flex justify-content-between gap-2"><p class="eyebrow text-primary mb-1">Plazo: {{ metrica.plazo }} días hábiles</p>{% if metrica.es_cuello_botella %}<span class="badge text-bg-danger align-self-start">Mayor demora</span>{% endif %}</div>
+        <h3 class="h4 fw-bold">{{ metrica.etapa }}</h3>
+        {% if metrica.promedio_horas != None %}<p class="display-6 fw-bold mb-1">{{ metrica.promedio_horas }} h</p><p class="text-body-secondary mb-3">Promedio de tiempo hábil observado</p>{% else %}<p class="text-body-secondary py-3">Sin etapas para analizar en este filtro.</p>{% endif %}
+        <div class="stage-stats"><span><strong>{{ metrica.abiertos }}</strong> abiertas</span><span class="{% if metrica.vencidos %}text-danger{% endif %}"><strong>{{ metrica.vencidos }}</strong> vencidas</span><span><strong>{{ metrica.finalizados }}</strong> finalizadas</span></div>
+      </div>
+    </article>
+    {% endfor %}
+  </div>
+</section>
+
+<section aria-labelledby="titulo-procesos-traza">
+  <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-2 mb-3"><div><h2 id="titulo-procesos-traza" class="h3 fw-bold mb-1">Trazabilidad por candidato</h2><p class="text-body-secondary mb-0">La información de las etapas permanece cerrada para mantener una vista limpia.</p></div><span class="fw-semibold">{{ total_procesos }} resultado{{ total_procesos|pluralize }}</span></div>
+  <div class="trace-process-list">
+    {% for proceso in procesos %}
+    <details class="card trace-process-card border-0">
+      <summary class="trace-process-summary">
+        <div class="person-cell"><span class="person-avatar" aria-hidden="true">{{ proceso.nombre|first|upper }}{{ proceso.apellidos|first|upper }}</span><div><strong>{{ proceso.nombre_completo }}</strong><small>{{ proceso.cedula }} · {{ proceso.vacante }}</small></div></div>
+        <div class="trace-summary-item"><span>Etapa actual</span><strong>{{ proceso.get_etapa_actual_display }}</strong><small>{{ proceso.get_estado_display }}</small></div>
+        <div class="trace-summary-item"><span>Tiempo acumulado</span><strong>{{ proceso.traza_total_horas }} h hábiles</strong>{% if proceso.traza_mas_lenta %}<small>Mayor: {{ proceso.traza_mas_lenta.get_etapa_display }} ({{ proceso.traza_mas_lenta.duracion_horas }} h)</small>{% endif %}</div>
+        <div class="trace-summary-item"><span>Situación</span><span class="badge rounded-pill text-bg-{{ proceso.traza_clase_plazo }}">{{ proceso.traza_estado_plazo }}</span>{% if proceso.traza_fuera_tiempo %}<small class="text-danger">{{ proceso.traza_fuera_tiempo }} etapa{{ proceso.traza_fuera_tiempo|pluralize }} fuera de tiempo</small>{% else %}<small>Sin retrasos registrados</small>{% endif %}</div>
+        <span class="trace-toggle" aria-hidden="true">Ver etapas <span>⌄</span></span>
+      </summary>
+      <div class="trace-process-detail">
+        <div class="table-responsive"><table class="table tracking-table align-middle mb-0"><thead><tr><th>Etapa</th><th>Plazo</th><th>Inicio y finalización</th><th>Tiempo hábil</th><th>Resultado</th><th>Cumplimiento</th></tr></thead><tbody>
+          {% for seguimiento in proceso.traza_seguimientos %}<tr><td><strong>{{ seguimiento.get_etapa_display }}</strong>{% if seguimiento.ciclo > 1 %}<div class="small text-body-secondary">Ciclo {{ seguimiento.ciclo }}</div>{% endif %}</td><td>{{ seguimiento.plazo_dias }} días hábiles</td><td><div class="management-period"><div><span>Inicio:</span><strong>{{ seguimiento.inicio|date:"d/m/Y H:i" }}</strong></div><div><span>Finalizó:</span><strong>{% if seguimiento.fin %}{{ seguimiento.fin|date:"d/m/Y H:i" }}{% else %}En curso{% endif %}</strong></div></div></td><td><strong>{{ seguimiento.duracion_horas }} h</strong></td><td>{{ seguimiento.get_resultado_display|default:"Pendiente" }}</td><td><span class="badge rounded-pill text-bg-{{ seguimiento.clase_plazo }}">{{ seguimiento.estado_plazo }}</span></td></tr>{% empty %}<tr class="tracking-empty"><td colspan="6" class="text-center text-body-secondary py-4">Sin información de tiempos.</td></tr>{% endfor %}
+        </tbody></table></div>
+        <div class="d-flex justify-content-end p-3 border-top"><a class="btn btn-primary btn-lg" href="{% url 'procesos:detalle' proceso.pk %}">Abrir historial completo</a></div>
+      </div>
+    </details>
+    {% empty %}<div class="card border-0"><div class="empty-state"><span aria-hidden="true">⌕</span><strong>No hay procesos con estos filtros</strong><p>Modifique las fechas o quite algún filtro para ampliar el análisis.</p></div></div>{% endfor %}
+  </div>
+</section>
+
+{% if page_obj.has_other_pages %}
+<nav class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mt-4" aria-label="Paginación de trazabilidad">
+  <p class="mb-0 text-body-secondary">Página <strong>{{ page_obj.number }}</strong> de <strong>{{ page_obj.paginator.num_pages }}</strong></p>
+  <ul class="pagination mb-0">
+    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_previous %}href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page_obj.previous_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Anterior</a></li>
+    <li class="page-item active"><span class="page-link">{{ page_obj.number }}</span></li>
+    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_next %}href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page_obj.next_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Siguiente</a></li>
+  </ul>
+</nav>
+{% endif %}
 {% endblock %}

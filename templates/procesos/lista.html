@@ -10,7 +10,7 @@
 
 {% if resumen_global %}
 <section class="summary-grid mb-4" aria-label="Resumen general de candidatos">
-  <article class="summary-card summary-blue"><span class="summary-icon" aria-hidden="true">●</span><div><span>Procesos activos</span><strong>{{ resumen_global.activos }}</strong></div></article>
+  <article class="summary-card summary-blue"><span class="summary-icon" aria-hidden="true">●</span><div><span>En curso</span><strong>{{ resumen_global.activos }}</strong></div></article>
   <article class="summary-card summary-amber"><span class="summary-icon" aria-hidden="true">✓</span><div><span>Listos para contratar</span><strong>{{ resumen_global.listos }}</strong></div></article>
   <article class="summary-card summary-green"><span class="summary-icon" aria-hidden="true">★</span><div><span>Contratados</span><strong>{{ resumen_global.contratados }}</strong></div></article>
   <article class="summary-card summary-red"><span class="summary-icon" aria-hidden="true">×</span><div><span>Rechazados</span><strong>{{ resumen_global.rechazados }}</strong></div></article>
@@ -44,7 +44,7 @@
           <td>{{ proceso.fecha_llegada|date:"d/m/Y" }}</td>
           <td class="text-end"><a class="btn btn-outline-primary btn-lg" href="{% url 'procesos:detalle' proceso.pk %}">Ver detalle</a></td>
         </tr>
-      {% empty %}<tr><td colspan="7"><div class="empty-state"><span aria-hidden="true">⌕</span><strong>No hay candidatos</strong><p>No encontramos personas que coincidan con esta sección o búsqueda.</p></div></td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="{% if mostrar_tiempos %}9{% else %}7{% endif %}"><div class="empty-state"><span aria-hidden="true">⌕</span><strong>No hay candidatos</strong><p>No encontramos personas que coincidan con esta sección o búsqueda.</p></div></td></tr>{% endfor %}
       </tbody>
     </table>
   </div>

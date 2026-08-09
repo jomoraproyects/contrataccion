@@ -105,6 +105,59 @@ class DecisionForm(forms.Form):
         return observacion
 
 
+class TrazabilidadFiltroForm(forms.Form):
+    SITUACIONES = [
+        ("", "Todas"),
+        ("vencidos", "Vencidos actualmente"),
+        ("por_vencer", "Próximos a vencer"),
+        ("con_retrasos", "Con alguna etapa fuera de tiempo"),
+        ("sin_retrasos", "Sin etapas fuera de tiempo"),
+    ]
+    ORDENES = [
+        ("recientes", "Llegada más reciente"),
+        ("demora", "Mayor tiempo acumulado"),
+        ("vencimiento", "Fecha límite más próxima"),
+        ("nombre", "Nombre del candidato"),
+    ]
+
+    q = forms.CharField(label="Nombre o cédula", required=False)
+    fecha_desde = forms.DateField(
+        label="Llegada desde", required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    fecha_hasta = forms.DateField(
+        label="Llegada hasta", required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    estado = forms.ChoiceField(
+        label="Estado", required=False,
+        choices=[("", "Todos")] + list(ProcesoSeleccion.Estado.choices),
+    )
+    etapa = forms.ChoiceField(
+        label="Etapa actual", required=False,
+        choices=[("", "Todas")] + list(ProcesoSeleccion.Etapa.choices),
+    )
+    vacante = forms.CharField(label="Vacante o área", required=False)
+    situacion = forms.ChoiceField(label="Cumplimiento", required=False, choices=SITUACIONES)
+    orden = forms.ChoiceField(label="Ordenar por", required=False, choices=ORDENES, initial="recientes")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs["class"] = (
+                "form-select form-select-lg"
+                if isinstance(field.widget, forms.Select)
+                else "form-control form-control-lg"
+            )
+
+    def clean(self):
+        datos = super().clean()
+        desde, hasta = datos.get("fecha_desde"), datos.get("fecha_hasta")
+        if desde and hasta and desde > hasta:
+            raise forms.ValidationError("La fecha inicial no puede ser posterior a la fecha final.")
+        return datos
+
+
 class UsuarioOperativoForm(UserCreationForm):
     first_name = forms.CharField(label="Nombre", max_length=150)
     last_name = forms.CharField(label="Apellidos", max_length=150)

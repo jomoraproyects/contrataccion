@@ -101,9 +101,48 @@ class FlujoProcesoTests(TestCase):
         seguimiento.save(update_fields=["fecha_limite"])
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:trazabilidad"))
-        self.assertContains(response, "Trazabilidad de tiempos")
+        self.assertContains(response, "Trazabilidad de procesos")
         self.assertContains(response, "Vencido hace 1 día(s)")
-        self.assertContains(response, "Plazo máximo: 6 días")
+        self.assertContains(response, "Plazo: 6 días")
+        self.assertContains(response, "Trazabilidad por candidato")
+        self.assertContains(response, 'class="card trace-process-card border-0"')
+        self.assertContains(response, "Abrir historial completo")
+        self.assertNotContains(response, "Etapas finalizadas recientemente")
+
+    def test_trazabilidad_filtra_por_fecha_estado_nombre_y_vacante(self):
+        otro = ProcesoSeleccion.objects.create(
+            nombre="Luis", apellidos="Antiguo", cedula="987654", celular="3007654321",
+            fecha_llegada=date(2025, 1, 10), vacante="Ventas",
+            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+        )
+        otro.registrar_decision(
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa"
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:trazabilidad"), {
+            "q": "Ana", "fecha_desde": date.today().isoformat(),
+            "estado": ProcesoSeleccion.Estado.EN_CURSO, "vacante": "Contabilidad",
+        })
+        self.assertContains(response, "Ana Pérez")
+        self.assertNotContains(response, "Luis Antiguo")
+        self.assertContains(response, "Aplicados")
+        self.assertContains(response, "1 resultado")
+
+    def test_trazabilidad_valida_el_rango_de_fechas(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:trazabilidad"), {
+            "fecha_desde": "2026-08-10", "fecha_hasta": "2026-08-01",
+        })
+        self.assertContains(response, "La fecha inicial no puede ser posterior")
+
+    def test_trazabilidad_filtra_procesos_con_retrasos(self):
+        seguimiento = self.proceso.seguimientos.get()
+        seguimiento.fecha_limite = timezone.now() - timedelta(days=1)
+        seguimiento.save(update_fields=["fecha_limite"])
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:trazabilidad"), {"situacion": "vencidos"})
+        self.assertContains(response, "Ana Pérez")
+        self.assertContains(response, "1 etapa fuera de tiempo")
 
     def test_gerente_recibe_alerta_global_de_vencimientos(self):
         seguimiento = self.proceso.seguimientos.get()
@@ -184,7 +223,7 @@ class FlujoProcesoTests(TestCase):
     def test_resumen_general_se_muestra(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:lista"))
-        self.assertContains(response, "Procesos activos")
+        self.assertContains(response, "En curso")
         self.assertContains(response, "Listos para contratar")
 
     def test_cabeceras_basicas_de_seguridad(self):
@@ -543,6 +582,46 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "No fue posible ingresar")
         self.assertNotIn("_auth_user_id", self.client.session)
+
+    def test_todas_las_pantallas_de_gerencia_renderizan(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        urls = [
+            reverse("procesos:lista"),
+            reverse("procesos:contratacion"),
+            reverse("procesos:rechazados"),
+            reverse("procesos:archivados"),
+            reverse("procesos:trazabilidad"),
+            reverse("procesos:usuarios"),
+            reverse("procesos:auditoria_seguridad"),
+            reverse("procesos:detalle", args=[self.proceso.pk]),
+            reverse("procesos:proceso_editar", args=[self.proceso.pk]),
+            reverse("procesos:proceso_actividad", args=[self.proceso.pk]),
+            reverse("procesos:usuario_crear"),
+            reverse("procesos:usuario_editar", args=[self.usuarios[Perfil.Rol.RRHH].pk]),
+            reverse("procesos:usuario_password", args=[self.usuarios[Perfil.Rol.RRHH].pk]),
+        ]
+        for url in urls:
+            with self.subTest(url=url):
+                self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_pantallas_operativas_renderizan_segun_el_rol(self):
+        casos = [
+            (Perfil.Rol.CONTRATACION, [
+                reverse("procesos:lista"), reverse("procesos:contratacion"),
+                reverse("procesos:rechazados"), reverse("procesos:crear"),
+                reverse("procesos:detalle", args=[self.proceso.pk]),
+            ]),
+            (Perfil.Rol.RRHH, [
+                reverse("procesos:lista"), reverse("procesos:detalle", args=[self.proceso.pk]),
+            ]),
+            (Perfil.Rol.PSICOLOGIA, [reverse("procesos:lista")]),
+            (Perfil.Rol.SEGURIDAD, [reverse("procesos:lista")]),
+        ]
+        for rol, urls in casos:
+            self.client.force_login(self.usuarios[rol])
+            for url in urls:
+                with self.subTest(rol=rol, url=url):
+                    self.assertEqual(self.client.get(url).status_code, 200)
 
 
 class ConfiguracionSeguridadTests(TestCase):

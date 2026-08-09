@@ -130,12 +130,39 @@ code { color: var(--app-text); background: var(--app-surface-soft); border: 1px 
 .management-period > div { display: grid; grid-template-columns: 5rem 1fr; gap: .45rem; align-items: baseline; }
 .management-period span:first-child { color: var(--app-muted); font-size: .9rem; font-weight: 800; }
 .management-period strong { white-space: nowrap; }
+.trace-filters summary { display: flex; align-items: center; }
+.bottleneck-card { border-left: 6px solid #dc3545 !important; }
+.bottleneck-value { display: flex; flex-direction: column; align-items: flex-end; justify-content: center; min-width: 150px; }
+.bottleneck-value strong { color: #b02a37; font-size: 2rem; line-height: 1.1; }
+.bottleneck-value span { color: var(--app-muted); font-weight: 700; }
+.trace-stage-card { border: 2px solid transparent !important; }
+.trace-stage-card.is-bottleneck { border-color: rgba(220,53,69,.5) !important; }
+.stage-stats { display: flex; flex-wrap: wrap; gap: .55rem; padding-top: .9rem; border-top: 1px solid var(--app-border); }
+.stage-stats span { padding: .35rem .55rem; border-radius: .45rem; background: var(--app-surface-soft); font-size: .9rem; }
+.trace-process-list { display: grid; gap: 1rem; }
+.trace-process-card { overflow: hidden; }
+.trace-process-summary { display: grid; grid-template-columns: minmax(220px, 1.4fr) repeat(3, minmax(155px, 1fr)) auto; gap: 1rem; align-items: center; padding: 1.2rem 1.4rem; list-style: none; }
+.trace-process-summary::-webkit-details-marker { display: none; }
+.trace-process-summary:hover { background: rgba(21,89,166,.045); }
+.trace-process-summary .person-cell small { display: block; margin-top: .2rem; color: var(--app-muted); font-weight: 500; }
+.trace-summary-item { display: flex; flex-direction: column; gap: .2rem; min-width: 0; }
+.trace-summary-item > span:first-child { color: var(--app-muted); font-size: .82rem; font-weight: 850; text-transform: uppercase; letter-spacing: .04em; }
+.trace-summary-item strong { overflow-wrap: anywhere; }
+.trace-summary-item small { color: var(--app-muted); }
+.trace-toggle { display: flex; align-items: center; gap: .45rem; color: var(--app-primary); font-weight: 800; white-space: nowrap; }
+.trace-toggle span { font-size: 1.35rem; transition: transform .2s ease; }
+.trace-process-card[open] .trace-toggle span { transform: rotate(180deg); }
+.trace-process-card[open] .trace-process-summary { background: rgba(21,89,166,.07); }
+.trace-process-detail { border-top: 1px solid var(--app-border); }
 [data-bs-theme="dark"] .empty-inline { color: #bbf7d0; background: rgba(25,135,84,.16); }
 [data-bs-theme="dark"] .assignment-count { color: #bae6fd; background: rgba(14,165,233,.2); }
 
 @media (max-width: 850px) {
   .summary-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .sla-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .trace-process-summary { grid-template-columns: 1fr 1fr; }
+  .trace-process-summary .person-cell { grid-column: 1 / -1; }
+  .trace-toggle { justify-self: end; }
 }
 @media (max-width: 767px) {
   .process-flow { grid-template-columns: 1fr 1fr; }
@@ -160,6 +187,14 @@ code { color: var(--app-text); background: var(--app-surface-soft); border: 1px 
   .tracking-table .management-period > div { display: block; }
   .tracking-table .management-period span, .tracking-table .management-period strong { display: block; }
   .tracking-table .management-period strong { white-space: normal; overflow-wrap: anywhere; }
+  .trace-process-summary { grid-template-columns: 1fr; padding: 1rem; }
+  .trace-process-summary .person-cell { grid-column: auto; }
+  .trace-toggle { justify-self: stretch; justify-content: space-between; padding-top: .75rem; border-top: 1px solid var(--app-border); }
+  .trace-process-detail .tracking-table td:nth-child(3)::before { content: "Periodo"; }
+  .trace-process-detail .tracking-table td:nth-child(4)::before { content: "Tiempo hábil"; }
+  .trace-process-detail .tracking-table td:nth-child(5)::before { content: "Resultado"; }
+  .trace-process-detail .tracking-table td:nth-child(6)::before { content: "Cumplimiento"; }
+  .bottleneck-value { align-items: flex-start; }
   .user-summary { display: none; }
   .global-work-alert { align-items: flex-start; flex-wrap: wrap; }
   .global-work-alert .btn { width: 100%; }

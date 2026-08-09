@@ -10,7 +10,8 @@ Permite registrar candidatos, llevarlos por Talento Humano, Psicología, Segurid
 - Flujo secuencial sin saltar etapas.
 - Aprobación o rechazo con observación obligatoria.
 - Alertas dentro del sistema y días hábiles restantes.
-- Historial de decisiones, tiempos y trazabilidad para Gerencia.
+- Historial de decisiones y trazabilidad resumida por candidato para Gerencia.
+- Filtros de fechas, estado, etapa, vacante y cumplimiento, con detección de cuellos de botella.
 - Procesos rechazados, contratados y archivados sin borrar información.
 - Una persona solo puede tener un proceso abierto a la vez.
 - Gestión de usuarios, roles, bloqueos y contraseñas.
