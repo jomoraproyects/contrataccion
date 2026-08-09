@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}{{ proceso.nombre_completo }}{% endblock %}
+{% block content %}
+<a class="btn btn-outline-secondary btn-lg mb-3" href="{% url 'procesos:lista' %}">← Volver a la lista</a>
+<div class="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-4">
+  <div><p class="eyebrow text-primary mb-1">Detalle del candidato</p><h1 class="display-6 fw-bold mb-1">{{ proceso.nombre_completo }}</h1><p class="fs-5 mb-0">Vacante: <strong>{{ proceso.vacante }}</strong></p></div>
+  <div class="text-lg-end"><div class="mb-2"><span class="fs-5">Estado:</span> <span class="badge rounded-pill fs-5 status-{{ proceso.estado|lower }}">{{ proceso.get_estado_display }}</span>{% if not proceso.activo %} <span class="badge rounded-pill fs-5 bg-secondary">Desactivado</span>{% endif %}</div><div class="fs-5">Etapa actual: <strong>{{ proceso.get_etapa_actual_display }}</strong></div></div>
+</div>
+{% if es_gerente %}<div class="d-flex flex-wrap gap-2 mb-4"><a class="btn btn-primary btn-lg" href="{% url 'procesos:proceso_editar' proceso.pk %}">Editar candidato</a><a class="btn {% if proceso.activo %}btn-outline-warning{% else %}btn-success{% endif %} btn-lg" href="{% url 'procesos:proceso_actividad' proceso.pk %}">{% if proceso.activo %}Desactivar{% else %}Restaurar{% endif %}</a></div>{% endif %}
+
+<section class="card shadow-sm border-0 mb-4"><div class="card-body p-4">
+  <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4"><h2 class="h4 fw-bold mb-0">Avance del proceso</h2>{% if ultimo_cambio_gerencia %}<span class="badge rounded-pill text-bg-info">Actualizado por Gerencia · {{ ultimo_cambio_gerencia.fecha|date:"d/m/Y H:i" }}</span>{% endif %}</div>
+  <div class="process-flow">
+  {% for etapa in etapas %}
+    <div class="flow-step {{ etapa.estado_visual }}">
+      <div class="flow-icon">{% if etapa.estado_visual == 'done' %}✓{% elif etapa.estado_visual == 'rejected' %}✕{% else %}{{ forloop.counter }}{% endif %}</div>
+      <div class="flow-label">{{ etapa.etiqueta }}</div>{% if etapa.ajustada %}<span class="badge rounded-pill text-bg-info mt-2">Ajustado por Gerencia</span>{% endif %}
+    </div>
+  {% endfor %}
+  </div>
+</div></section>
+
+<div class="row g-4">
+  <div class="col-12 col-xl-5">
+    <section class="card shadow-sm border-0 h-100"><div class="card-body p-4"><h2 class="h4 fw-bold mb-4">Información del candidato</h2>
+      <dl class="row fs-5 info-list"><dt class="col-sm-5">Nombre</dt><dd class="col-sm-7">{{ proceso.nombre_completo }}</dd><dt class="col-sm-5">Cédula</dt><dd class="col-sm-7">{{ proceso.cedula }}</dd><dt class="col-sm-5">Celular</dt><dd class="col-sm-7">{{ proceso.celular }}</dd><dt class="col-sm-5">Hoja de vida recibida</dt><dd class="col-sm-7">{{ proceso.fecha_llegada|date:"d/m/Y" }}</dd><dt class="col-sm-5">Vacante o área</dt><dd class="col-sm-7">{{ proceso.vacante }}</dd><dt class="col-sm-5">Creado por</dt><dd class="col-sm-7">{{ proceso.creado_por.get_full_name|default:proceso.creado_por.username }}</dd></dl>
+    </div></section>
+  </div>
+  <div class="col-12 col-xl-7">
+    <section class="card shadow-sm border-0"><div class="card-body p-4"><h2 class="h4 fw-bold mb-4">Historial de decisiones</h2>
+      <div class="timeline">
+      {% for decision in proceso.decisiones.all %}<article class="timeline-item {{ decision.resultado|lower }} {% if not decision.vigente %}opacity-75{% endif %}"><div class="d-flex justify-content-between flex-wrap gap-2"><h3 class="h5 fw-bold mb-1">{{ decision.get_etapa_display }} — {{ decision.get_resultado_display }}{% if not decision.vigente %} <span class="badge text-bg-secondary">Anulada por Gerencia</span>{% endif %}</h3><time class="text-secondary">{{ decision.fecha|date:"d/m/Y H:i" }}</time></div><p class="fs-5 mb-1">{{ decision.observacion }}</p><small class="text-secondary">Por {{ decision.decidido_por.get_full_name|default:decision.decidido_por.username }}{% if decision.anulada_por_gerencia %} · Anulada por {{ decision.anulada_por_gerencia.get_full_name|default:decision.anulada_por_gerencia.username }}{% endif %}</small></article>{% empty %}<p class="fs-5 text-secondary">Aún no se han tomado decisiones.</p>{% endfor %}
+      </div>
+    </div></section>
+  </div>
+</div>
+
+{% if proceso.cambios_gerencia.all %}<section class="card shadow-sm border-0 mt-4"><div class="card-body p-4"><h2 class="h4 fw-bold mb-4">Cambios realizados por Gerencia</h2><div class="timeline">{% for cambio in proceso.cambios_gerencia.all %}<article class="timeline-item"><div class="d-flex justify-content-between flex-wrap gap-2"><h3 class="h5 fw-bold mb-1">{{ cambio.get_tipo_display }}</h3><time class="text-secondary">{{ cambio.fecha|date:"d/m/Y H:i" }}</time></div><p class="fs-5 mb-1">{{ cambio.descripcion }}</p>{% if cambio.etapa_anterior and cambio.etapa_anterior != cambio.etapa_nueva %}<p class="mb-1">Etapa: <strong>{{ cambio.get_etapa_anterior_display }}</strong> → <strong>{{ cambio.get_etapa_nueva_display }}</strong></p>{% endif %}{% if cambio.estado_anterior and cambio.estado_anterior != cambio.estado_nuevo %}<p class="mb-1">Estado: <strong>{{ cambio.get_estado_anterior_display }}</strong> → <strong>{{ cambio.get_estado_nuevo_display }}</strong></p>{% endif %}<small class="text-secondary">Por {{ cambio.realizado_por.get_full_name|default:cambio.realizado_por.username }}</small></article>{% endfor %}</div></div></section>{% endif %}
+
+<section class="card shadow-sm border-0 mt-4"><div class="card-body p-4"><div class="d-flex flex-wrap justify-content-between align-items-start gap-2 mb-3"><div><h2 class="h4 fw-bold mb-1">Tiempos por etapa</h2><p class="text-body-secondary mb-0">Se mide desde que el área recibe el requerimiento hasta que registra su decisión.</p></div><span class="text-body-secondary">Sábados, domingos y festivos no cuentan</span></div><div class="table-responsive"><table class="table tracking-table align-middle mb-0"><thead><tr><th>Etapa</th><th>Plazo</th><th>Periodo de gestión</th><th>Fecha límite</th><th>Tiempo empleado</th><th>Cumplimiento</th></tr></thead><tbody>{% for seguimiento in seguimientos %}<tr><td><strong>{{ seguimiento.get_etapa_display }}</strong>{% if seguimiento.ciclo > 1 %}<div class="small text-body-secondary">Reapertura {{ seguimiento.ciclo }}</div>{% endif %}</td><td>{{ seguimiento.plazo_dias }} días hábiles</td><td><div class="management-period"><div><span>Inicio:</span><strong>{{ seguimiento.inicio|date:"d/m/Y H:i" }}</strong></div><div><span>Finalizó:</span>{% if seguimiento.fin %}<strong>{{ seguimiento.fin|date:"d/m/Y H:i" }}</strong>{% else %}<strong class="text-primary">En curso</strong>{% endif %}</div></div></td><td>{{ seguimiento.fecha_limite|date:"d/m/Y H:i" }}</td><td><strong>{{ seguimiento.duracion_horas }} h</strong></td><td><span class="badge rounded-pill text-bg-{{ seguimiento.clase_plazo }}">{{ seguimiento.estado_plazo }}</span></td></tr>{% empty %}<tr class="tracking-empty"><td colspan="6" class="text-center text-body-secondary py-4">Aún no hay información de tiempos.</td></tr>{% endfor %}</tbody></table></div></div></section>
+
+{% if puede_decidir %}
+<section class="card decision-card shadow border-0 mt-4"><div class="card-body p-4 p-lg-5">
+  <h2 class="h3 fw-bold">Tomar decisión: {{ proceso.get_etapa_actual_display }}</h2><p class="fs-5">La observación es obligatoria. Una aprobación avanza a la siguiente etapa; un rechazo finaliza el proceso.</p>
+  <form method="post" novalidate data-submit-once>{% csrf_token %}
+    {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
+    <fieldset class="mb-4"><legend class="fs-5 fw-bold">Decisión</legend><div class="decision-options">{% for radio in form.resultado %}<label class="decision-option {% if radio.data.value == 'APROBADO' %}approve{% else %}reject{% endif %}">{{ radio.tag }}<span>{{ radio.choice_label }}</span></label>{% endfor %}</div>{% for error in form.resultado.errors %}<div class="text-danger">{{ error }}</div>{% endfor %}</fieldset>
+    <div class="mb-4"><label class="form-label fs-5 fw-bold" for="{{ form.observacion.id_for_label }}">{{ form.observacion.label }}</label>{{ form.observacion }}{% for error in form.observacion.errors %}<div class="text-danger mt-1">{{ error }}</div>{% endfor %}</div>
+    <button class="btn btn-primary btn-lg px-5 py-3 fw-bold" type="submit" data-loading-text="Guardando decisión…"><span data-submit-label>Guardar decisión</span></button>
+  </form>
+</div></section>
+{% elif not proceso.esta_finalizado %}<div class="alert alert-info fs-5 mt-4"><strong>Solo lectura.</strong> La decisión está pendiente del usuario de {{ proceso.get_etapa_actual_display }}.</div>{% endif %}
+{% endblock %}

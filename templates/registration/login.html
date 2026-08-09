@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block title %}Ingresar | Procesos de contratación{% endblock %}
+{% block content %}
+<button class="btn btn-theme login-theme-toggle btn-lg" type="button" data-theme-toggle aria-label="Activar modo oscuro" title="Cambiar tema"><span aria-hidden="true" data-theme-icon>◐</span></button>
+<div class="login-wrapper d-flex align-items-center justify-content-center py-4">
+  <section class="login-card-simple card border-0" aria-labelledby="titulo-login">
+    <div class="login-brand" aria-hidden="true">PC</div>
+    <div class="text-center mb-4">
+      <p class="eyebrow text-primary mb-2">Acceso seguro</p>
+      <h1 id="titulo-login" class="login-title">Procesos de contratación</h1>
+      <p class="fs-5 text-body-secondary mb-0">Ingrese con su usuario y contraseña.</p>
+    </div>
+
+    {% if acceso_bloqueado %}<div class="alert alert-danger" role="alert" tabindex="-1" data-error-summary><strong>Acceso bloqueado temporalmente.</strong><br>Alcanzó el límite de intentos. Intente nuevamente en aproximadamente {{ minutos_bloqueo }} minuto{{ minutos_bloqueo|pluralize }}.</div>
+    {% elif credenciales_invalidas %}<div class="alert alert-danger" role="alert" tabindex="-1" data-error-summary><strong>No fue posible ingresar.</strong><br>El usuario o la contraseña no son correctos.{% if intentos_restantes is not None %} Le quedan <strong>{{ intentos_restantes }}</strong> intento{{ intentos_restantes|pluralize }} antes del bloqueo temporal.{% endif %}</div>{% endif %}
+
+    <form method="post" data-submit-once>
+      {% csrf_token %}
+      {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
+      <div class="mb-4"><label class="form-label fs-5 fw-semibold" for="id_username">Usuario</label><input class="form-control form-control-lg" type="text" name="username" value="{{ form.username.value|default:'' }}" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required id="id_username"></div>
+      <div class="mb-4"><label class="form-label fs-5 fw-semibold" for="id_password">Contraseña</label><div class="input-group input-group-lg"><input class="form-control" type="password" name="password" autocomplete="current-password" required id="id_password"><button class="btn btn-outline-secondary password-toggle" type="button" data-password-toggle aria-controls="id_password" aria-pressed="false">Mostrar</button></div></div>
+      <button class="btn btn-primary btn-lg w-100 py-3 fw-bold" type="submit" data-loading-text="Ingresando…"><span data-submit-label>Ingresar</span></button>
+    </form>
+    <p class="login-support text-center mb-0">Si olvidó sus datos, comuníquese con el Gerente.</p>
+  </section>
+</div>
+{% endblock %}

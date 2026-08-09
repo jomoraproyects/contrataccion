@@ -1,0 +1,49 @@
+{% load static %}
+<!doctype html>
+<html lang="es" data-bs-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#1559a6">
+  <title>{% block title %}Procesos de contratación{% endblock %}</title>
+  <script src="{% static 'js/theme-init.js' %}"></script>
+  <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}">
+</head>
+<body>
+<a class="skip-link" href="#contenido-principal">Saltar al contenido principal</a>
+{% if user.is_authenticated %}
+<nav class="navbar navbar-expand-lg navbar-dark app-navbar shadow-sm" aria-label="Navegación principal">
+  <div class="container-fluid px-lg-4">
+    <a class="navbar-brand fw-bold fs-4" href="{% url 'procesos:lista' %}">Procesos de contratación</a>
+    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#menu" aria-controls="menu" aria-expanded="false" aria-label="Abrir menú"><span class="navbar-toggler-icon"></span></button>
+    <div class="collapse navbar-collapse" id="menu">
+      <div class="navbar-nav me-auto gap-lg-2">
+        <a class="nav-link {% if request.resolver_match.url_name == 'lista' %}active{% endif %}" {% if request.resolver_match.url_name == 'lista' %}aria-current="page"{% endif %} href="{% url 'procesos:lista' %}">Procesos{% if asignaciones_pendientes %} <span class="badge rounded-pill text-bg-warning text-dark" aria-label="{{ asignaciones_pendientes }} asignaciones pendientes">{{ asignaciones_pendientes }}</span>{% endif %}</a>
+        {% if rol_usuario == 'GERENTE' or rol_usuario == 'CONTRATACION' %}<a class="nav-link {% if request.resolver_match.url_name == 'contratacion' %}active{% endif %}" {% if request.resolver_match.url_name == 'contratacion' %}aria-current="page"{% endif %} href="{% url 'procesos:contratacion' %}">Contratación</a>
+        <a class="nav-link {% if request.resolver_match.url_name == 'rechazados' %}active{% endif %}" {% if request.resolver_match.url_name == 'rechazados' %}aria-current="page"{% endif %} href="{% url 'procesos:rechazados' %}">Rechazados</a>{% endif %}
+        {% if rol_usuario == 'GERENTE' %}<a class="nav-link {% if request.resolver_match.url_name == 'usuarios' or request.resolver_match.url_name == 'usuario_crear' or request.resolver_match.url_name == 'usuario_editar' or request.resolver_match.url_name == 'usuario_password' %}active{% endif %}" {% if request.resolver_match.url_name == 'usuarios' or request.resolver_match.url_name == 'usuario_crear' or request.resolver_match.url_name == 'usuario_editar' or request.resolver_match.url_name == 'usuario_password' %}aria-current="page"{% endif %} href="{% url 'procesos:usuarios' %}">Equipo</a>{% endif %}
+        {% if rol_usuario == 'GERENTE' %}<a class="nav-link {% if request.resolver_match.url_name == 'archivados' %}active{% endif %}" {% if request.resolver_match.url_name == 'archivados' %}aria-current="page"{% endif %} href="{% url 'procesos:archivados' %}">Desactivados</a>{% endif %}
+        {% if rol_usuario == 'GERENTE' %}<a class="nav-link {% if request.resolver_match.url_name == 'trazabilidad' %}active{% endif %}" {% if request.resolver_match.url_name == 'trazabilidad' %}aria-current="page"{% endif %} href="{% url 'procesos:trazabilidad' %}">Trazabilidad</a>{% endif %}
+        {% if rol_usuario == 'GERENTE' %}<a class="nav-link {% if request.resolver_match.url_name == 'auditoria_seguridad' %}active{% endif %}" {% if request.resolver_match.url_name == 'auditoria_seguridad' %}aria-current="page"{% endif %} href="{% url 'procesos:auditoria_seguridad' %}">Auditoría</a>{% endif %}
+      </div>
+      <div class="d-flex align-items-center gap-2 text-white mt-3 mt-lg-0">
+        <div class="user-summary me-2"><strong>{{ user.get_full_name|default:user.username }}</strong>{% if rol_usuario_nombre %}<small>{{ rol_usuario_nombre }}</small>{% endif %}</div>
+        <button class="btn btn-theme btn-lg" type="button" data-theme-toggle aria-label="Activar modo oscuro" title="Cambiar tema"><span aria-hidden="true" data-theme-icon>◐</span></button>
+        <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn btn-light btn-lg" type="submit">Salir</button></form>
+      </div>
+    </div>
+  </div>
+</nav>
+{% endif %}
+<main id="contenido-principal" class="container-fluid px-3 px-lg-5 py-4" tabindex="-1">
+  <div aria-live="polite" aria-atomic="true">{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} fs-5" role="status">{{ message }}</div>{% endfor %}</div>
+  {% if alerta_asignacion %}<aside class="global-work-alert alert alert-{{ alerta_asignacion.clase_plazo }}" role="alert" aria-labelledby="alerta-trabajo-titulo"><div class="global-work-icon" aria-hidden="true">!</div><div class="flex-grow-1"><h2 id="alerta-trabajo-titulo" class="h4 fw-bold mb-1">Tiene {{ asignaciones_pendientes }} proceso{{ asignaciones_pendientes|pluralize }} pendiente{{ asignaciones_pendientes|pluralize }} en {{ rol_usuario_nombre }}</h2><p class="mb-1">El más urgente es <strong>{{ alerta_asignacion.proceso.nombre_completo }}</strong> para {{ alerta_asignacion.proceso.vacante }}.</p><p class="mb-0"><strong>{{ alerta_asignacion.estado_plazo }}</strong> · Fecha límite: {{ alerta_asignacion.fecha_limite|date:"d/m/Y H:i" }}</p></div><a class="btn btn-dark btn-lg align-self-center" href="{% url 'procesos:lista' %}#titulo-asignaciones">Ver pendientes</a></aside>
+  {% elif rol_usuario == 'GERENTE' and procesos_vencidos_gerencia or rol_usuario == 'GERENTE' and procesos_por_vencer_gerencia %}<aside class="global-work-alert alert {% if procesos_vencidos_gerencia %}alert-danger{% else %}alert-warning{% endif %}" role="alert"><div class="global-work-icon" aria-hidden="true">!</div><div class="flex-grow-1"><h2 class="h4 fw-bold mb-1">Alerta de tiempos para Gerencia</h2><p class="mb-0"><strong>{{ procesos_vencidos_gerencia }}</strong> etapa{{ procesos_vencidos_gerencia|pluralize }} vencida{{ procesos_vencidos_gerencia|pluralize }} y <strong>{{ procesos_por_vencer_gerencia }}</strong> próxima{{ procesos_por_vencer_gerencia|pluralize }} a vencer.</p></div><a class="btn btn-dark btn-lg align-self-center" href="{% url 'procesos:trazabilidad' %}">Revisar trazabilidad</a></aside>{% endif %}
+  {% block content %}{% endblock %}
+</main>
+<script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
+<script src="{% static 'js/app.js' %}"></script>
+</body>
+</html>

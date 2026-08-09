@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}Acceso no permitido{% endblock %}
+{% block content %}<div class="error-page text-center"><div class="error-code" aria-hidden="true">403</div><h1 class="h2 fw-bold">No tiene permiso para realizar esta acción</h1><p class="fs-5 text-body-secondary">Ingrese con el usuario correspondiente a esta etapa o regrese a la lista.</p><a class="btn btn-primary btn-lg" href="{% url 'procesos:lista' %}">Volver a Procesos</a></div>{% endblock %}

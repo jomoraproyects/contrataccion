@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Editar {{ proceso.nombre_completo }}{% endblock %}
+{% block content %}
+<div class="mx-auto form-page">
+  <a class="btn btn-outline-secondary btn-lg mb-3" href="{% url 'procesos:detalle' proceso.pk %}">← Volver al candidato</a>
+  <section class="card border-0"><div class="card-body p-4 p-lg-5">
+    <p class="eyebrow text-primary mb-1">Administración de Gerencia</p><h1 class="h2 fw-bold">Editar datos del candidato</h1><p class="fs-5 text-body-secondary mb-4">Las correcciones quedarán visibles en el historial. La etapa y el estado solo avanzan mediante las decisiones del flujo.</p>
+    <form method="post" novalidate data-submit-once>{% csrf_token %}
+      {% if form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="row g-4">{% for field in form %}<div class="col-12 {% if field.name != 'motivo_cambio' %}col-md-6{% endif %}"><label class="form-label fs-5 fw-semibold" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}{% for error in field.errors %}<div class="text-danger fw-semibold mt-1">{{ error }}</div>{% endfor %}</div>{% endfor %}</div>
+      <div class="alert alert-info mt-4 mb-0" role="note">Gerencia puede corregir los datos registrados, pero no saltar etapas ni reemplazar las decisiones de cada área.</div>
+      <div class="d-grid d-md-flex justify-content-md-end gap-3 mt-4"><a class="btn btn-outline-secondary btn-lg px-5" href="{% url 'procesos:detalle' proceso.pk %}">Cancelar</a><button class="btn btn-primary btn-lg px-5 py-3 fw-bold" type="submit" data-loading-text="Guardando…"><span data-submit-label>Guardar cambios</span></button></div>
+    </form>
+  </div></section>
+</div>
+{% endblock %}

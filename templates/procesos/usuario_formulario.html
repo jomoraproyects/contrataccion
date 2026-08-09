@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block content %}
+<div class="mx-auto form-page">
+  <a class="btn btn-outline-secondary btn-lg mb-3" href="{% url 'procesos:usuarios' %}">← Volver a Usuarios</a>
+  <section class="card border-0"><div class="card-body p-4 p-lg-5">
+    <h1 class="h2 fw-bold">{{ titulo }}</h1><p class="fs-5 text-body-secondary mb-4">{{ descripcion }}</p>
+    {% if usuario_objetivo %}<div class="user-target mb-4"><span class="user-avatar" aria-hidden="true">{{ usuario_objetivo.first_name|first|default:usuario_objetivo.username|first|upper }}</span><div><strong class="fs-5">{{ usuario_objetivo.get_full_name|default:usuario_objetivo.username }}</strong><div class="text-body-secondary">{{ usuario_objetivo.perfil.get_rol_display }} · {{ usuario_objetivo.username }}</div></div></div>{% endif %}
+    <form method="post" novalidate data-submit-once>{% csrf_token %}
+      {% if form.non_field_errors %}<div class="alert alert-danger" role="alert">{{ form.non_field_errors }}</div>{% endif %}
+      <div class="row g-4">
+      {% for field in form %}<div class="col-12 {% if not usuario_objetivo and field.name == 'first_name' or not usuario_objetivo and field.name == 'last_name' %}col-md-6{% endif %}">{% if field.name == 'is_active' %}<div class="access-switch"><div>{{ field }}<label class="form-check-label fs-5 fw-semibold ms-2" for="{{ field.id_for_label }}">{{ field.label }}</label></div>{% if field.help_text %}<div class="form-text ms-5">{{ field.help_text }}</div>{% endif %}</div>{% else %}<label class="form-label fs-5 fw-semibold" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% if field.help_text %}<div class="form-text">{{ field.help_text }}</div>{% endif %}{% endif %}{% for error in field.errors %}<div class="text-danger fw-semibold mt-1">{{ error }}</div>{% endfor %}</div>{% endfor %}
+      </div>
+      <div class="d-grid d-md-flex justify-content-md-end gap-3 mt-5"><a class="btn btn-outline-secondary btn-lg px-5" href="{% url 'procesos:usuarios' %}">Cancelar</a><button class="btn btn-primary btn-lg px-5 py-3 fw-bold" type="submit" data-loading-text="Guardando…"><span data-submit-label>{{ texto_boton }}</span></button></div>
+    </form>
+  </div></section>
+</div>
+{% endblock %}

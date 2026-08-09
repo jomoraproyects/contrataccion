@@ -1,0 +1,3 @@
+{% extends "base.html" %}
+{% block title %}Página no encontrada{% endblock %}
+{% block content %}<div class="error-page text-center"><div class="error-code" aria-hidden="true">404</div><h1 class="h2 fw-bold">No encontramos esta página</h1><p class="fs-5 text-body-secondary">Es posible que el enlace haya cambiado o que el candidato ya no exista.</p><a class="btn btn-primary btn-lg" href="{% url 'procesos:lista' %}">Volver a Procesos</a></div>{% endblock %}

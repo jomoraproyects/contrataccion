@@ -1,0 +1,24 @@
+databases:
+  - name: seleccion-personal-db
+    plan: free # Solo para evaluación. Use un plan de pago antes de guardar datos reales.
+services:
+  - type: web
+    name: seleccion-personal
+    runtime: python
+    plan: free # Solo para evaluación. Use un plan de pago para operación empresarial.
+    buildCommand: bash build.sh
+    startCommand: gunicorn seleccion_personal.wsgi:application
+    healthCheckPath: /ingresar/
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: seleccion-personal-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: DEBUG
+        value: "False"
+      - key: ALLOWED_HOSTS
+        value: .onrender.com
+      - key: PYTHON_VERSION
+        value: 3.13.5

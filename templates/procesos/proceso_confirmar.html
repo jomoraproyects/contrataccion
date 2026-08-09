@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block content %}
+<div class="mx-auto form-page">
+  <a class="btn btn-outline-secondary btn-lg mb-3" href="{% url 'procesos:detalle' proceso.pk %}">← Volver al candidato</a>
+  <section class="card border-0"><div class="card-body p-4 p-lg-5">
+    <p class="eyebrow {% if peligrosa %}text-danger{% else %}text-primary{% endif %} mb-1">Acción de Gerencia</p><h1 class="h2 fw-bold">{{ titulo }}</h1><p class="fs-5 text-body-secondary">{{ descripcion }}</p>
+    <div class="user-target my-4"><span class="user-avatar" aria-hidden="true">{{ proceso.nombre|first|upper }}{{ proceso.apellidos|first|upper }}</span><div><strong class="fs-5">{{ proceso.nombre_completo }}</strong><div class="text-body-secondary">Cédula {{ proceso.cedula }} · {{ proceso.vacante }}</div></div></div>
+    {% if accion == 'eliminar' %}<div class="alert alert-danger" role="alert"><strong>Esta acción no se puede deshacer.</strong> Primero se exige que el candidato esté desactivado.</div>{% endif %}
+    <form method="post" novalidate data-submit-once>{% csrf_token %}{% for field in form %}<div class="mb-4"><label class="form-label fs-5 fw-semibold" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% for error in field.errors %}<div class="text-danger fw-semibold mt-1">{{ error }}</div>{% endfor %}</div>{% endfor %}<div class="d-grid d-md-flex justify-content-md-end gap-3"><a class="btn btn-outline-secondary btn-lg px-5" href="{% url 'procesos:detalle' proceso.pk %}">Cancelar</a><button class="btn {% if peligrosa %}btn-danger{% else %}btn-success{% endif %} btn-lg px-5 py-3 fw-bold" type="submit" data-loading-text="Procesando…"><span data-submit-label>{{ texto_boton }}</span></button></div></form>
+  </div></section>
+</div>
+{% endblock %}

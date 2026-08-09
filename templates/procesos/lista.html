@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block content %}
+<div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
+  <div><p class="eyebrow text-primary mb-1">Gestión de candidatos</p><h1 class="display-6 fw-bold mb-1">{{ titulo }}</h1><p class="fs-5 text-secondary mb-0">{{ descripcion }}</p></div>
+  {% if puede_crear %}<a class="btn btn-success btn-lg px-4 py-3 fw-bold" href="{% url 'procesos:crear' %}">+ Añadir nuevo proceso</a>{% endif %}
+</div>
+
+{% if mostrar_asignaciones %}<section class="assignment-panel card border-0 mb-4" aria-labelledby="titulo-asignaciones"><div class="card-body p-4"><div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3"><div><p class="eyebrow text-primary mb-1">Avisos de su área</p><h2 id="titulo-asignaciones" class="h3 fw-bold mb-1">Procesos asignados a {{ rol_usuario_nombre }}</h2><p class="text-body-secondary mb-0">Ordenados por la fecha límite más próxima.</p></div><span class="assignment-count align-self-md-start">{{ asignaciones|length }} proceso{{ asignaciones|length|pluralize }} pendiente{{ asignaciones|length|pluralize }}</span></div>{% if asignaciones %}<div class="table-responsive"><table class="table align-middle mb-0"><thead><tr><th>Candidato</th><th>Asignado desde</th><th>Fecha límite</th><th>Tiempo restante</th><th></th></tr></thead><tbody>{% for seguimiento in asignaciones %}<tr><td><strong>{{ seguimiento.proceso.nombre_completo }}</strong><div class="text-body-secondary">{{ seguimiento.proceso.vacante }}</div></td><td>{{ seguimiento.inicio|date:"d/m/Y H:i" }}</td><td>{{ seguimiento.fecha_limite|date:"d/m/Y H:i" }}</td><td><span class="badge rounded-pill text-bg-{{ seguimiento.clase_plazo }}">{{ seguimiento.estado_plazo }}</span></td><td><a class="btn btn-outline-primary" href="{% url 'procesos:detalle' seguimiento.proceso.pk %}">Atender</a></td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty-inline"><span aria-hidden="true">✓</span><div><strong>No tiene procesos pendientes</strong><p class="mb-0">Cuando llegue un candidato nuevo a su etapa aparecerá aquí.</p></div></div>{% endif %}</div></section>{% endif %}
+
+{% if resumen_global %}
+<section class="summary-grid mb-4" aria-label="Resumen general de candidatos">
+  <article class="summary-card summary-blue"><span class="summary-icon" aria-hidden="true">●</span><div><span>Procesos activos</span><strong>{{ resumen_global.activos }}</strong></div></article>
+  <article class="summary-card summary-amber"><span class="summary-icon" aria-hidden="true">✓</span><div><span>Listos para contratar</span><strong>{{ resumen_global.listos }}</strong></div></article>
+  <article class="summary-card summary-green"><span class="summary-icon" aria-hidden="true">★</span><div><span>Contratados</span><strong>{{ resumen_global.contratados }}</strong></div></article>
+  <article class="summary-card summary-red"><span class="summary-icon" aria-hidden="true">×</span><div><span>Rechazados</span><strong>{{ resumen_global.rechazados }}</strong></div></article>
+</section>
+{% endif %}
+
+<details class="card shadow-sm border-0 mb-4" {% if request.GET %}open{% endif %}>
+  <summary class="card-header bg-white p-3 fs-5 fw-bold">Buscar y filtrar</summary>
+  <form class="card-body row g-3" method="get">
+    <div class="col-12 col-lg-4"><label class="form-label" for="q">Nombre o cédula</label><input class="form-control form-control-lg" id="q" name="q" value="{{ request.GET.q }}" placeholder="Ejemplo: Ana o 123456"></div>
+    <div class="col-12 col-md-6 col-lg-2"><label class="form-label" for="estado">Estado</label><select class="form-select form-select-lg" id="estado" name="estado"><option value="">Todos</option>{% for value,label in estados %}<option value="{{ value }}" {% if request.GET.estado == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-12 col-md-6 col-lg-2"><label class="form-label" for="etapa">Etapa</label><select class="form-select form-select-lg" id="etapa" name="etapa"><option value="">Todas</option>{% for value,label in etapas %}<option value="{{ value }}" {% if request.GET.etapa == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+    <div class="col-12 col-lg-4"><label class="form-label" for="vacante">Vacante o área</label><input class="form-control form-control-lg" id="vacante" name="vacante" value="{{ request.GET.vacante }}"></div>
+    <div class="col-12 col-md-4"><label class="form-label" for="fecha_desde">Desde</label><input class="form-control form-control-lg" type="date" id="fecha_desde" name="fecha_desde" value="{{ request.GET.fecha_desde }}"></div>
+    <div class="col-12 col-md-4"><label class="form-label" for="fecha_hasta">Hasta</label><input class="form-control form-control-lg" type="date" id="fecha_hasta" name="fecha_hasta" value="{{ request.GET.fecha_hasta }}"></div>
+    <div class="col-12 col-md-4 d-flex align-items-end gap-2"><button class="btn btn-primary btn-lg flex-grow-1" type="submit">Filtrar</button><a class="btn btn-outline-secondary btn-lg" href="{{ request.path }}">Limpiar</a></div>
+  </form>
+</details>
+
+<div class="card shadow-sm border-0 overflow-hidden">
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0 fs-5">
+      <caption class="visually-hidden">{{ titulo }}. Resultados de candidatos y su estado.</caption>
+      <thead class="table-light"><tr><th scope="col">Candidato</th><th scope="col">Cédula</th><th scope="col">Vacante</th>{% if mostrar_rechazo %}<th scope="col">Falló en</th><th scope="col">Motivo</th>{% else %}<th scope="col">Etapa</th><th scope="col">Estado</th>{% endif %}{% if mostrar_tiempos %}<th scope="col">Tiempo total del proceso</th><th scope="col">Cumplimiento</th>{% endif %}<th scope="col">Fecha</th><th scope="col"><span class="visually-hidden">Acción</span></th></tr></thead>
+      <tbody>
+      {% for proceso in procesos %}
+        <tr>
+          <td><div class="person-cell"><span class="person-avatar" aria-hidden="true">{{ proceso.nombre|first|upper }}{{ proceso.apellidos|first|upper }}</span><strong>{{ proceso.nombre_completo }}</strong></div></td><td>{{ proceso.cedula }}</td><td>{{ proceso.vacante }}</td>
+          {% if mostrar_rechazo %}<td><span class="badge rounded-pill status-rechazado">{{ proceso.etapa_rechazo }}</span></td><td>{{ proceso.motivo_rechazo }}</td>{% else %}<td>{{ proceso.get_etapa_actual_display }}</td><td><span class="badge rounded-pill status-{{ proceso.estado|lower }}">{{ proceso.get_estado_display }}</span></td>{% endif %}
+          {% if mostrar_tiempos %}<td><strong>{{ proceso.duracion_total_legible }}</strong></td><td><span class="badge rounded-pill text-bg-info">{{ proceso.cumplimiento_etapas }}</span></td>{% endif %}
+          <td>{{ proceso.fecha_llegada|date:"d/m/Y" }}</td>
+          <td class="text-end"><a class="btn btn-outline-primary btn-lg" href="{% url 'procesos:detalle' proceso.pk %}">Ver detalle</a></td>
+        </tr>
+      {% empty %}<tr><td colspan="7"><div class="empty-state"><span aria-hidden="true">⌕</span><strong>No hay candidatos</strong><p>No encontramos personas que coincidan con esta sección o búsqueda.</p></div></td></tr>{% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% if page_obj.has_other_pages %}
+<nav class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mt-4" aria-label="Paginación de candidatos">
+  <p class="mb-0 text-body-secondary">Página <strong>{{ page_obj.number }}</strong> de <strong>{{ page_obj.paginator.num_pages }}</strong></p>
+  <ul class="pagination mb-0">
+    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_previous %}href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page_obj.previous_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Anterior</a></li>
+    <li class="page-item active"><span class="page-link">{{ page_obj.number }}</span></li>
+    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_next %}href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page_obj.next_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Siguiente</a></li>
+  </ul>
+</nav>
+{% endif %}
+{% if historial_terminados %}<section class="card shadow-sm border-0 overflow-hidden mt-5" aria-labelledby="titulo-historial-area"><div class="card-body p-4 pb-0"><p class="eyebrow text-primary mb-1">Solo lectura</p><h2 id="titulo-historial-area" class="h3 fw-bold mb-1">Procesos terminados de su área</h2><p class="text-body-secondary mb-4">Últimos procesos en los que su área registró una decisión.</p></div><div class="table-responsive"><table class="table table-hover align-middle mb-0 fs-5"><thead class="table-light"><tr><th scope="col">Candidato</th><th scope="col">Vacante</th><th scope="col">Resultado</th><th scope="col">Fecha</th><th scope="col"><span class="visually-hidden">Acción</span></th></tr></thead><tbody>{% for proceso in historial_terminados %}<tr><td><strong>{{ proceso.nombre_completo }}</strong><div class="text-body-secondary">{{ proceso.cedula }}</div></td><td>{{ proceso.vacante }}</td><td><span class="badge rounded-pill status-{{ proceso.estado|lower }}">{{ proceso.get_estado_display }}</span></td><td>{{ proceso.actualizado_en|date:"d/m/Y" }}</td><td class="text-end"><a class="btn btn-outline-primary" href="{% url 'procesos:detalle' proceso.pk %}">Ver historial</a></td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
+{% endblock %}

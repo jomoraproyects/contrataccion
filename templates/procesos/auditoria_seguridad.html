@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Auditoría de seguridad{% endblock %}
+{% block content %}
+<header class="mb-4"><p class="eyebrow text-primary mb-1">Control de acceso</p><h1 class="display-6 fw-bold mb-1">Auditoría de seguridad</h1><p class="fs-5 text-body-secondary mb-0">Últimos accesos, bloqueos, denegaciones y cambios de cuentas. Los identificadores inválidos nunca se guardan en texto claro.</p></header>
+<div class="card border-0 overflow-hidden"><div class="table-responsive"><table class="table table-hover align-middle mb-0">
+  <caption class="visually-hidden">Últimos 200 eventos de seguridad</caption>
+  <thead class="table-light"><tr><th scope="col">Fecha</th><th scope="col">Evento</th><th scope="col">Responsable</th><th scope="col">Dirección IP</th><th scope="col">Detalle</th></tr></thead>
+  <tbody>{% for evento in eventos %}<tr><td class="text-nowrap">{{ evento.fecha|date:"d/m/Y H:i:s" }}</td><td><strong>{{ evento.get_tipo_display }}</strong></td><td>{% if evento.usuario %}{{ evento.usuario.get_full_name|default:evento.usuario.username }}{% else %}No identificado{% endif %}</td><td><code>{{ evento.ip|default:"No disponible" }}</code></td><td>{{ evento.detalle|default:"—" }}</td></tr>{% empty %}<tr><td colspan="5" class="text-center py-5 text-body-secondary">Todavía no hay eventos registrados.</td></tr>{% endfor %}</tbody>
+</table></div></div>
+{% endblock %}

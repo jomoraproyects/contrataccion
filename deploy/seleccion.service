@@ -1,0 +1,24 @@
+[Unit]
+Description=Procesos de contratación Django
+After=network.target postgresql.service
+
+[Service]
+Type=notify
+User=seleccion
+Group=www-data
+WorkingDirectory=/var/www/seleccion
+EnvironmentFile=/etc/seleccion/seleccion.env
+RuntimeDirectory=seleccion
+ExecStart=/var/www/seleccion/.venv/bin/gunicorn seleccion_personal.wsgi:application --workers 3 --bind unix:/run/seleccion/gunicorn.sock --access-logfile - --error-logfile - --timeout 60
+ExecReload=/bin/kill -s HUP $MAINPID
+KillSignal=SIGQUIT
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=5
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

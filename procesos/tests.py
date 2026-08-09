@@ -1,0 +1,506 @@
+from datetime import date, datetime, timedelta
+
+from django.contrib.auth.models import User
+from django.contrib.auth.hashers import identify_hasher, make_password
+from django.conf import settings
+from django.core.cache import cache
+from django.core.management import call_command
+from django.core.exceptions import ValidationError
+from django.test import TestCase, override_settings
+from django.urls import reverse
+from django.utils import timezone
+
+from .calendario import es_dia_habil, segundos_habiles_entre, sumar_dias_habiles, sumar_segundos_habiles
+from .models import CambioGerencia, Decision, EventoSeguridad, Perfil, ProcesoSeleccion, SeguimientoEtapa
+
+
+@override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
+class FlujoProcesoTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.usuarios = {}
+        for rol in Perfil.Rol.values:
+            usuario = User.objects.create_user(username=rol.lower(), password="prueba-segura")
+            usuario.perfil.rol = rol
+            usuario.perfil.save()
+            self.usuarios[rol] = usuario
+        self.proceso = ProcesoSeleccion.objects.create(
+            nombre="Ana", apellidos="Pérez", cedula="12345", celular="3001234567",
+            fecha_llegada=date.today(), vacante="Contabilidad",
+            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+        )
+
+    def test_flujo_completo_hasta_contratado(self):
+        for rol, etapa_esperada in [
+            (Perfil.Rol.RRHH, ProcesoSeleccion.Etapa.PSICOLOGIA),
+            (Perfil.Rol.PSICOLOGIA, ProcesoSeleccion.Etapa.SEGURIDAD),
+            (Perfil.Rol.SEGURIDAD, ProcesoSeleccion.Etapa.CONTRATACION),
+        ]:
+            self.proceso.registrar_decision(self.usuarios[rol], Decision.Resultado.APROBADO, "Cumple los requisitos")
+            self.assertEqual(self.proceso.etapa_actual, etapa_esperada)
+        self.assertEqual(self.proceso.estado, ProcesoSeleccion.Estado.LISTO_CONTRATACION)
+        self.proceso.registrar_decision(self.usuarios[Perfil.Rol.CONTRATACION], Decision.Resultado.APROBADO, "Contrato firmado")
+        self.assertEqual(self.proceso.estado, ProcesoSeleccion.Estado.CONTRATADO)
+        self.assertEqual(self.proceso.decisiones.count(), 4)
+        seguimientos = list(self.proceso.seguimientos.order_by("inicio"))
+        self.assertEqual(len(seguimientos), 4)
+        self.assertEqual([item.plazo_dias for item in seguimientos], [2, 3, 6, 2])
+        self.assertTrue(all(item.fin for item in seguimientos))
+
+    def test_plazos_se_crean_y_avanzan_con_cada_etapa(self):
+        seguimiento = self.proceso.seguimientos.get()
+        self.assertEqual(seguimiento.etapa, ProcesoSeleccion.Etapa.RRHH)
+        self.assertEqual(seguimiento.fecha_limite, sumar_dias_habiles(seguimiento.inicio, 2))
+        self.proceso.registrar_decision(
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Validación completada"
+        )
+        seguimiento.refresh_from_db()
+        self.assertIsNotNone(seguimiento.fin)
+        psicologia = self.proceso.seguimientos.get(etapa=ProcesoSeleccion.Etapa.PSICOLOGIA)
+        self.assertEqual(psicologia.fecha_limite, sumar_dias_habiles(psicologia.inicio, 3))
+
+    def test_plazo_habil_excluye_festivo_y_fin_de_semana(self):
+        inicio = timezone.make_aware(datetime(2026, 8, 6, 9, 0))
+        limite = sumar_dias_habiles(inicio, 2)
+        self.assertFalse(es_dia_habil(date(2026, 8, 7)))  # Batalla de Boyacá
+        self.assertFalse(es_dia_habil(date(2026, 8, 8)))  # Sábado
+        self.assertEqual(limite, timezone.make_aware(datetime(2026, 8, 11, 9, 0)))
+
+    def test_panel_del_rol_notifica_asignaciones_y_dias_restantes(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        response = self.client.get(reverse("procesos:lista"))
+        self.assertContains(response, "Procesos asignados a Talento Humano")
+        self.assertContains(response, "Quedan 2 día(s)")
+        self.assertContains(response, "1 proceso pendiente")
+
+    def test_alerta_del_rol_aparece_en_cualquier_pantalla(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        response = self.client.get(reverse("procesos:detalle", args=[self.proceso.pk]))
+        self.assertContains(response, "Tiene 1 proceso pendiente en Talento Humano")
+        self.assertContains(response, "El más urgente es <strong>Ana Pérez</strong>", html=False)
+        self.assertContains(response, "Quedan 2 día(s)")
+
+    def test_gerente_consulta_trazabilidad_y_vencimientos(self):
+        seguimiento = self.proceso.seguimientos.get()
+        seguimiento.fecha_limite = timezone.now() - timedelta(hours=1)
+        seguimiento.save(update_fields=["fecha_limite"])
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:trazabilidad"))
+        self.assertContains(response, "Trazabilidad de tiempos")
+        self.assertContains(response, "Vencido hace 1 día(s)")
+        self.assertContains(response, "Plazo máximo: 6 días")
+
+    def test_gerente_recibe_alerta_global_de_vencimientos(self):
+        seguimiento = self.proceso.seguimientos.get()
+        seguimiento.fecha_limite = timezone.now() - timedelta(hours=2)
+        seguimiento.save(update_fields=["fecha_limite"])
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:usuarios"))
+        self.assertContains(response, "Alerta de tiempos para Gerencia")
+        self.assertContains(response, "1</strong> etapa vencida", html=False)
+
+    def test_solo_gerente_consulta_tablero_de_trazabilidad(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.PSICOLOGIA])
+        self.assertEqual(self.client.get(reverse("procesos:trazabilidad")).status_code, 403)
+
+    def test_rechazo_detiene_el_proceso(self):
+        self.proceso.registrar_decision(self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No cumple validación")
+        self.assertEqual(self.proceso.estado, ProcesoSeleccion.Estado.RECHAZADO)
+        with self.assertRaises(ValidationError):
+            self.proceso.registrar_decision(self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Cambiar decisión")
+
+    def test_no_permite_saltar_etapa_ni_observacion_vacia(self):
+        with self.assertRaises(ValidationError):
+            self.proceso.registrar_decision(self.usuarios[Perfil.Rol.PSICOLOGIA], Decision.Resultado.APROBADO, "Apto")
+        with self.assertRaises(ValidationError):
+            self.proceso.registrar_decision(self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "  ")
+
+    def test_gerente_supervisa_pero_no_decide(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:detalle", args=[self.proceso.pk]))
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Guardar decisión")
+        response = self.client.post(reverse("procesos:detalle", args=[self.proceso.pk]), {"resultado": "APROBADO", "observacion": "Apto"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_solo_contratacion_crea_procesos(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        self.assertEqual(self.client.get(reverse("procesos:crear")).status_code, 403)
+
+    def test_formulario_rechaza_celular_con_letras_y_fecha_futura(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        response = self.client.post(reverse("procesos:crear"), {
+            "nombre": "Luis", "apellidos": "Prueba", "cedula": "987654",
+            "celular": "300ABC123", "fecha_llegada": (date.today() + timedelta(days=1)).isoformat(),
+            "vacante": "Ventas",
+        })
+        self.assertContains(response, "Escriba un celular válido")
+        self.assertContains(response, "no puede estar en el futuro")
+        self.assertFalse(ProcesoSeleccion.objects.filter(cedula="987654").exists())
+
+    def test_busqueda_admite_nombre_completo_y_fecha_invalida(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:lista"), {"q": "Ana Pérez", "fecha_desde": "fecha-invalida"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Ana")
+
+    def test_resumen_general_se_muestra(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:lista"))
+        self.assertContains(response, "Procesos activos")
+        self.assertContains(response, "Listos para contratar")
+
+    def test_cabeceras_basicas_de_seguridad(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:lista"))
+        self.assertEqual(response.headers["X-Frame-Options"], "DENY")
+        self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
+        self.assertEqual(response.headers["Referrer-Policy"], "same-origin")
+        self.assertIn("default-src 'self'", response.headers["Content-Security-Policy"])
+        self.assertIn("no-store", response.headers["Cache-Control"])
+        self.assertEqual(response.headers["Permissions-Policy"], "camera=(), microphone=(), geolocation=(), payment=(), usb=()")
+
+    def test_login_bloquea_tras_cinco_intentos(self):
+        url = reverse("login")
+        for restantes in (4, 3, 2, 1):
+            intento = self.client.post(url, {"username": "rrhh", "password": "incorrecta"})
+            self.assertEqual(intento.status_code, 200)
+            self.assertContains(intento, "No fue posible ingresar")
+            self.assertContains(intento, f"Le quedan <strong>{restantes}</strong>", html=False)
+        response = self.client.post(url, {"username": "rrhh", "password": "incorrecta"})
+        self.assertEqual(response.status_code, 429)
+        self.assertContains(response, "Acceso bloqueado temporalmente", status_code=429)
+        self.assertEqual(response.headers["Retry-After"], "900")
+        perfil = self.usuarios[Perfil.Rol.RRHH].perfil
+        perfil.refresh_from_db()
+        self.assertEqual(perfil.intentos_fallidos, 5)
+        self.assertIsNotNone(perfil.bloqueado_hasta)
+        self.assertEqual(self.client.post(url, {"username": "rrhh", "password": "prueba-segura"}).status_code, 429)
+
+    def test_usuario_desconocido_no_revela_si_existe(self):
+        response = self.client.post(reverse("login"), {"username": "no-existe", "password": "incorrecta"})
+        self.assertContains(response, "El usuario o la contraseña no son correctos")
+        self.assertNotContains(response, "no se encuentra registrado")
+        self.assertNotContains(response, "intentos antes")
+
+    def test_campos_vacios_no_desgastan_intentos(self):
+        url = reverse("login")
+        self.assertContains(self.client.post(url, {"username": "", "password": ""}), "No fue posible ingresar")
+        self.assertContains(self.client.post(url, {"username": "rrhh", "password": ""}), "No fue posible ingresar")
+        perfil = self.usuarios[Perfil.Rol.RRHH].perfil
+        perfil.refresh_from_db()
+        self.assertEqual(perfil.intentos_fallidos, 0)
+
+    def test_cuenta_inhabilitada_no_revela_su_estado(self):
+        usuario = self.usuarios[Perfil.Rol.RRHH]
+        usuario.is_active = False
+        usuario.save(update_fields=["is_active"])
+        response = self.client.post(reverse("login"), {"username": "rrhh", "password": "prueba-segura"})
+        self.assertContains(response, "El usuario o la contraseña no son correctos")
+        self.assertNotContains(response, "bloqueado por el Gerente")
+
+    def test_login_correcto_limpia_intentos_fallidos(self):
+        url = reverse("login")
+        self.client.post(url, {"username": "rrhh", "password": "incorrecta"})
+        self.client.post(url, {"username": "rrhh", "password": "incorrecta"})
+        self.assertEqual(self.client.post(url, {"username": "rrhh", "password": "prueba-segura"}).status_code, 302)
+        perfil = self.usuarios[Perfil.Rol.RRHH].perfil
+        perfil.refresh_from_db()
+        self.assertEqual(perfil.intentos_fallidos, 0)
+        self.assertIsNone(perfil.bloqueado_hasta)
+
+    def test_login_incluye_controles_de_accesibilidad(self):
+        response = self.client.get(reverse("login"))
+        self.assertContains(response, "Saltar al contenido principal")
+        self.assertContains(response, "data-theme-toggle")
+        self.assertContains(response, 'autocomplete="current-password"')
+        self.assertContains(response, "Procesos de contratación")
+        self.assertNotContains(response, "Información clara")
+
+    def test_usuario_autenticado_no_vuelve_a_ver_el_login(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        self.assertRedirects(self.client.get(reverse("login")), reverse("procesos:lista"))
+
+    def test_panel_admin_fue_retirado(self):
+        self.assertEqual(self.client.get("/admin/").status_code, 404)
+
+    def test_gerente_puede_ver_y_crear_usuarios_operativos(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:usuarios"))
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Talento Humano")
+        response = self.client.post(reverse("procesos:usuario_crear"), {
+            "username": "nuevo.rrhh", "first_name": "Nuevo", "last_name": "Usuario",
+            "rol": Perfil.Rol.RRHH, "password1": "ClaveInicial2026!", "password2": "ClaveInicial2026!",
+        })
+        self.assertRedirects(response, reverse("procesos:usuarios"))
+        nuevo = User.objects.get(username="nuevo.rrhh")
+        self.assertEqual(nuevo.perfil.rol, Perfil.Rol.RRHH)
+        self.assertTrue(nuevo.check_password("ClaveInicial2026!"))
+
+    def test_gerente_edita_y_bloquea_usuario(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        objetivo = self.usuarios[Perfil.Rol.RRHH]
+        response = self.client.post(reverse("procesos:usuario_editar", args=[objetivo.pk]), {
+            "username": "rrhh.nuevo", "first_name": "María", "last_name": "Recursos Humanos",
+            "rol": Perfil.Rol.PSICOLOGIA, "is_active": "",
+        })
+        self.assertRedirects(response, reverse("procesos:usuarios"))
+        objetivo.refresh_from_db()
+        objetivo.perfil.refresh_from_db()
+        self.assertEqual(objetivo.username, "rrhh.nuevo")
+        self.assertEqual(objetivo.get_full_name(), "María Recursos Humanos")
+        self.assertEqual(objetivo.perfil.rol, Perfil.Rol.PSICOLOGIA)
+        self.assertFalse(objetivo.is_active)
+        self.client.logout()
+        self.assertFalse(self.client.login(username="rrhh.nuevo", password="prueba-segura"))
+
+    def test_gerente_cambia_password_operativo(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        objetivo = self.usuarios[Perfil.Rol.PSICOLOGIA]
+        objetivo.perfil.intentos_fallidos = 5
+        objetivo.perfil.bloqueado_hasta = timezone.now() + timedelta(minutes=15)
+        objetivo.perfil.save()
+        response = self.client.post(reverse("procesos:usuario_password", args=[objetivo.pk]), {
+            "new_password1": "NuevaClave2026!", "new_password2": "NuevaClave2026!",
+        })
+        self.assertRedirects(response, reverse("procesos:usuarios"))
+        objetivo.refresh_from_db()
+        objetivo.perfil.refresh_from_db()
+        self.assertTrue(objetivo.check_password("NuevaClave2026!"))
+        self.assertEqual(objetivo.perfil.intentos_fallidos, 0)
+        self.assertIsNone(objetivo.perfil.bloqueado_hasta)
+
+    def test_listado_paginado_sin_perder_filtros(self):
+        for indice in range(25):
+            ProcesoSeleccion.objects.create(
+                nombre=f"Persona {indice}", apellidos="Prueba", cedula=f"99{indice:03d}",
+                celular="3001234567", fecha_llegada=date.today(), vacante="Ventas",
+                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:lista"), {"vacante": "Ventas"})
+        self.assertEqual(len(response.context["procesos"]), 20)
+        self.assertContains(response, "vacante=Ventas&amp;page=2")
+        response = self.client.get(reverse("procesos:lista"), {"vacante": "Ventas", "page": 2})
+        self.assertEqual(len(response.context["procesos"]), 5)
+
+    def test_usuario_operativo_no_puede_gestionar_cuentas(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        self.assertEqual(self.client.get(reverse("procesos:usuarios")).status_code, 403)
+        self.assertEqual(self.client.get(reverse("procesos:usuario_crear")).status_code, 403)
+
+    def test_gerente_no_puede_modificar_otro_gerente(self):
+        gerente = self.usuarios[Perfil.Rol.GERENTE]
+        otro = User.objects.create_user(username="otro.gerente", password="ClaveGerente2026!")
+        otro.perfil.rol = Perfil.Rol.GERENTE
+        otro.perfil.save()
+        self.client.force_login(gerente)
+        self.assertEqual(self.client.get(reverse("procesos:usuario_editar", args=[otro.pk])).status_code, 403)
+        self.assertEqual(self.client.get(reverse("procesos:usuario_password", args=[otro.pk])).status_code, 403)
+
+    def test_gerente_edita_datos_sin_poder_saltar_el_flujo(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.post(reverse("procesos:proceso_editar", args=[self.proceso.pk]), {
+            "nombre": "Ana María", "apellidos": "Pérez", "cedula": "12345",
+            "celular": "3001234567", "fecha_llegada": date.today().isoformat(),
+            "vacante": "Contabilidad", "etapa_actual": ProcesoSeleccion.Etapa.CONTRATACION,
+            "estado": ProcesoSeleccion.Estado.LISTO_CONTRATACION,
+            "motivo_cambio": "Corrección autorizada por documentación recibida.",
+        })
+        self.assertRedirects(response, reverse("procesos:detalle", args=[self.proceso.pk]))
+        self.proceso.refresh_from_db()
+        self.assertEqual(self.proceso.nombre, "Ana María")
+        self.assertEqual(self.proceso.etapa_actual, ProcesoSeleccion.Etapa.RRHH)
+        self.assertEqual(self.proceso.estado, ProcesoSeleccion.Estado.EN_CURSO)
+        cambio = self.proceso.cambios_gerencia.get()
+        self.assertEqual(cambio.etapa_anterior, ProcesoSeleccion.Etapa.RRHH)
+        detalle = self.client.get(reverse("procesos:detalle", args=[self.proceso.pk]))
+        self.assertContains(detalle, "Seguridad y Salud en el Trabajo")
+        self.assertContains(detalle, "Cambios realizados por Gerencia")
+
+    def test_gerente_no_reabre_un_rechazo_desde_la_edicion(self):
+        self.proceso.registrar_decision(
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "Documento inicialmente inválido"
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        self.client.post(reverse("procesos:proceso_editar", args=[self.proceso.pk]), {
+            "nombre": "Ana", "apellidos": "Pérez", "cedula": "12345",
+            "celular": "3001234567", "fecha_llegada": date.today().isoformat(),
+            "vacante": "Contabilidad", "etapa_actual": ProcesoSeleccion.Etapa.RRHH,
+            "estado": ProcesoSeleccion.Estado.EN_CURSO,
+            "motivo_cambio": "Se recibió el documento corregido y se reabre la validación.",
+        })
+        self.proceso.refresh_from_db()
+        anterior = self.proceso.decisiones.get()
+        self.assertTrue(anterior.vigente)
+        self.assertEqual(self.proceso.estado, ProcesoSeleccion.Estado.RECHAZADO)
+        seguimientos_rrhh = self.proceso.seguimientos.filter(etapa=ProcesoSeleccion.Etapa.RRHH)
+        self.assertEqual(seguimientos_rrhh.count(), 1)
+        self.assertEqual(seguimientos_rrhh.filter(fin__isnull=True).count(), 0)
+        self.assertEqual(self.proceso.decisiones.filter(etapa=ProcesoSeleccion.Etapa.RRHH, vigente=True).count(), 1)
+
+    def test_usuario_operativo_no_administra_candidatos(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        self.assertEqual(self.client.get(reverse("procesos:proceso_editar", args=[self.proceso.pk])).status_code, 403)
+        self.assertEqual(self.client.post(reverse("procesos:proceso_actividad", args=[self.proceso.pk]), {"motivo": "No autorizado"}).status_code, 403)
+
+    def test_gerente_desactiva_y_restaura_candidato(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        url = reverse("procesos:proceso_actividad", args=[self.proceso.pk])
+        self.client.post(url, {"motivo": "Registro duplicado en revisión."})
+        self.proceso.refresh_from_db()
+        self.assertFalse(self.proceso.activo)
+        seguimiento = self.proceso.seguimientos.get(fin__isnull=True)
+        limite_antes = seguimiento.fecha_limite
+        self.proceso.archivado_en = timezone.now() - timedelta(days=2)
+        self.proceso.save(update_fields=["archivado_en"])
+        pausa_esperada = segundos_habiles_entre(self.proceso.archivado_en, timezone.now())
+        limite_esperado = sumar_segundos_habiles(limite_antes, pausa_esperada)
+        self.assertNotContains(self.client.get(reverse("procesos:lista")), "Ana Pérez")
+        self.assertContains(self.client.get(reverse("procesos:archivados")), "Ana Pérez")
+        self.client.post(url, {"motivo": "Se confirmó que el registro es válido."})
+        self.proceso.refresh_from_db()
+        seguimiento.refresh_from_db()
+        self.assertTrue(self.proceso.activo)
+        self.assertAlmostEqual((seguimiento.fecha_limite - limite_esperado).total_seconds(), 0, delta=5)
+        self.assertAlmostEqual(seguimiento.segundos_pausados, pausa_esperada, delta=5)
+        self.assertEqual(self.proceso.cambios_gerencia.count(), 2)
+
+    def test_contratacion_muestra_tiempo_total_y_cumplimiento(self):
+        for rol in (Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA, Perfil.Rol.SEGURIDAD, Perfil.Rol.CONTRATACION):
+            self.proceso.registrar_decision(
+                self.usuarios[rol], Decision.Resultado.APROBADO, "Etapa completada dentro del plazo"
+            )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:contratacion"))
+        self.assertContains(response, "Tiempo total")
+        self.assertContains(response, "4 de 4 a tiempo")
+        self.assertContains(response, "horas")
+
+    def test_detalle_muestra_inicio_fin_y_tiempo_de_cada_etapa(self):
+        self.proceso.registrar_decision(
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Validación terminada"
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:detalle", args=[self.proceso.pk]))
+        self.assertContains(response, "Periodo de gestión")
+        self.assertContains(response, "Inicio:")
+        self.assertContains(response, "Finalizó:")
+        self.assertContains(response, "Tiempo empleado")
+        self.assertContains(response, "En curso")
+
+    def test_comando_reconstruye_tiempos_de_procesos_antiguos(self):
+        for rol in (Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA, Perfil.Rol.SEGURIDAD, Perfil.Rol.CONTRATACION):
+            self.proceso.registrar_decision(
+                self.usuarios[rol], Decision.Resultado.APROBADO, "Decisión histórica"
+            )
+        self.proceso.seguimientos.all().delete()
+        call_command("reconstruir_seguimientos")
+        self.assertEqual(self.proceso.seguimientos.count(), 4)
+        self.assertEqual(self.proceso.seguimientos.filter(fin__isnull=False).count(), 4)
+
+    def test_no_existe_ruta_para_eliminar_candidatos(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(f"/candidato/{self.proceso.pk}/eliminar/")
+        self.assertEqual(response.status_code, 404)
+        self.client.post(
+            reverse("procesos:proceso_actividad", args=[self.proceso.pk]),
+            {"motivo": "Conservar el historial del registro de prueba."},
+        )
+        self.assertTrue(ProcesoSeleccion.objects.filter(pk=self.proceso.pk, activo=False).exists())
+
+    def test_cada_area_solo_ve_sus_asignaciones(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.PSICOLOGIA])
+        self.assertNotContains(self.client.get(reverse("procesos:lista")), "Ana Pérez")
+        self.assertEqual(self.client.get(reverse("procesos:detalle", args=[self.proceso.pk])).status_code, 404)
+        self.assertEqual(self.client.get(reverse("procesos:contratacion")).status_code, 403)
+
+    def test_area_consulta_historial_terminado_en_el_que_participo(self):
+        self.proceso.registrar_decision(
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Validación correcta"
+        )
+        self.proceso.registrar_decision(
+            self.usuarios[Perfil.Rol.PSICOLOGIA], Decision.Resultado.RECHAZADO, "No continúa"
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        response = self.client.get(reverse("procesos:lista"))
+        self.assertContains(response, "Procesos terminados de su área")
+        self.assertContains(response, "Ana Pérez")
+        self.assertEqual(self.client.get(reverse("procesos:detalle", args=[self.proceso.pk])).status_code, 200)
+
+    def test_no_permite_dos_procesos_abiertos_para_la_misma_cedula(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        response = self.client.post(reverse("procesos:crear"), {
+            "nombre": "Ana", "apellidos": "Nueva", "cedula": "12345",
+            "celular": "3009876543", "fecha_llegada": date.today().isoformat(), "vacante": "Ventas",
+        })
+        self.assertContains(response, "ya tiene un proceso abierto")
+        self.assertEqual(ProcesoSeleccion.objects.filter(cedula="12345").count(), 1)
+
+    def test_permite_nueva_postulacion_cuando_el_proceso_anterior_finalizo(self):
+        self.proceso.registrar_decision(
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa"
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        response = self.client.post(reverse("procesos:crear"), {
+            "nombre": "Ana", "apellidos": "Pérez", "cedula": "12345",
+            "celular": "3009876543", "fecha_llegada": date.today().isoformat(), "vacante": "Ventas",
+        })
+        self.assertRedirects(response, reverse("procesos:detalle", args=[2]))
+        self.assertEqual(ProcesoSeleccion.objects.filter(cedula="12345").count(), 2)
+
+    def test_busqueda_trata_intento_sql_como_texto(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:lista"), {"q": "' OR 1=1 --"})
+        self.assertEqual(response.status_code, 200)
+        self.assertNotContains(response, "Ana Pérez")
+
+    def test_datos_del_candidato_se_escapan_contra_xss(self):
+        self.proceso.nombre = "<script>alert(1)</script>"
+        self.proceso.save(update_fields=["nombre"])
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:detalle", args=[self.proceso.pk]))
+        self.assertNotContains(response, "<script>alert(1)</script>")
+        self.assertContains(response, "&lt;script&gt;alert(1)&lt;/script&gt;")
+
+    def test_salud_verifica_base_sin_autenticacion(self):
+        response = self.client.get(reverse("salud"))
+        self.assertEqual(response.status_code, 200)
+        self.assertJSONEqual(response.content, {"estado": "ok"})
+
+    def test_login_y_cambios_de_cuenta_quedan_auditados(self):
+        self.client.post(reverse("login"), {"username": "rrhh", "password": "incorrecta"})
+        self.assertTrue(EventoSeguridad.objects.filter(tipo=EventoSeguridad.Tipo.LOGIN_FALLIDO).exists())
+        self.client.post(reverse("login"), {"username": "rrhh", "password": "prueba-segura"})
+        self.assertTrue(EventoSeguridad.objects.filter(tipo=EventoSeguridad.Tipo.LOGIN_CORRECTO).exists())
+
+    def test_solo_gerencia_consulta_auditoria_de_seguridad(self):
+        EventoSeguridad.objects.create(tipo=EventoSeguridad.Tipo.LOGIN_FALLIDO, detalle="Prueba")
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:auditoria_seguridad"))
+        self.assertContains(response, "Auditoría de seguridad")
+        self.assertContains(response, "Inicio de sesión fallido")
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        self.assertEqual(self.client.get(reverse("procesos:auditoria_seguridad")).status_code, 403)
+
+    def test_limite_por_ip_detiene_ataques_distribuidos_a_cuentas(self):
+        url = reverse("login")
+        for indice in range(20):
+            response = self.client.post(url, {"username": f"desconocido-{indice}", "password": "incorrecta"})
+            self.assertEqual(response.status_code, 200)
+        response = self.client.post(url, {"username": "otro", "password": "incorrecta"})
+        self.assertEqual(response.status_code, 429)
+
+    def test_cuenta_sin_rol_no_puede_iniciar_sesion(self):
+        usuario = self.usuarios[Perfil.Rol.SIN_ASIGNAR]
+        response = self.client.post(reverse("login"), {"username": usuario.username, "password": "prueba-segura"})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "No fue posible ingresar")
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+
+class ConfiguracionSeguridadTests(TestCase):
+    def test_bcrypt_sha256_es_el_hasher_principal(self):
+        self.assertEqual(settings.PASSWORD_HASHERS[0], "django.contrib.auth.hashers.BCryptSHA256PasswordHasher")
+        self.assertEqual(identify_hasher(make_password("ClaveLarga2026!", hasher="bcrypt_sha256")).algorithm, "bcrypt_sha256")

@@ -1,0 +1,43 @@
+limit_req_zone $binary_remote_addr zone=login:10m rate=10r/m;
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name seleccion.empresa.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name seleccion.empresa.com;
+
+    ssl_certificate /etc/letsencrypt/live/seleccion.empresa.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/seleccion.empresa.com/privkey.pem;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+
+    client_max_body_size 1m;
+
+    location /static/ {
+        alias /var/www/seleccion/staticfiles/;
+        access_log off;
+        expires 7d;
+    }
+
+    location = /ingresar/ {
+        limit_req zone=login burst=5 nodelay;
+        include proxy_params;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_pass http://unix:/run/seleccion/gunicorn.sock;
+    }
+
+    location / {
+        include proxy_params;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_pass http://unix:/run/seleccion/gunicorn.sock;
+    }
+}
