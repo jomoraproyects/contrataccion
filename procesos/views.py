@@ -499,7 +499,9 @@ def cambiar_actividad_proceso(request, pk):
 @login_required
 def lista_usuarios(request):
     _exigir_gerente(request.user)
-    usuarios = User.objects.select_related("perfil").order_by("perfil__rol", "first_name", "username")
+    usuarios = User.objects.select_related("perfil").exclude(
+        perfil__rol=Perfil.Rol.SIN_ASIGNAR
+    ).order_by("perfil__rol", "first_name", "username")
     bloqueados_temporales = Q(perfil__bloqueado_hasta__gt=timezone.now())
     return render(request, "procesos/usuarios_lista.html", {
         "usuarios": usuarios,
@@ -569,6 +571,9 @@ def editar_usuario(request, pk):
     form = EditarUsuarioOperativoForm(request.POST or None, instance=usuario)
     if request.method == "POST" and form.is_valid():
         usuario = form.save()
+        if usuario.perfil.rol == Perfil.Rol.CONTRATACION and not usuario.is_active:
+            usuario.is_active = True
+            usuario.save(update_fields=["is_active"])
         if usuario.is_active:
             usuario.perfil.limpiar_bloqueo()
         estado = "habilitado" if usuario.is_active else "bloqueado"
@@ -582,6 +587,6 @@ def editar_usuario(request, pk):
         "form": form,
         "usuario_objetivo": usuario,
         "titulo": "Editar usuario",
-        "descripcion": "Actualice sus datos, cambie el área o bloquee temporalmente el acceso.",
+        "descripcion": "Actualice sus datos o cambie el área. Gerencia y Contratación no pueden bloquearse manualmente.",
         "texto_boton": "Guardar cambios",
     })

@@ -331,6 +331,56 @@ class FlujoProcesoTests(TestCase):
         self.client.logout()
         self.assertFalse(self.client.login(username="rrhh.nuevo", password="prueba-segura"))
 
+    def test_contratacion_no_puede_bloquearse_manualmente(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        objetivo = self.usuarios[Perfil.Rol.CONTRATACION]
+        url = reverse("procesos:usuario_editar", args=[objetivo.pk])
+        response = self.client.get(url)
+        self.assertContains(response, "no puede bloquearse manualmente")
+        self.assertTrue(response.context["form"].fields["is_active"].disabled)
+        response = self.client.post(url, {
+            "username": objetivo.username, "first_name": "Equipo", "last_name": "Contratación",
+            "rol": Perfil.Rol.CONTRATACION, "is_active": "",
+        })
+        self.assertRedirects(response, reverse("procesos:usuarios"))
+        objetivo.refresh_from_db()
+        self.assertTrue(objetivo.is_active)
+
+    def test_cambiar_un_usuario_a_contratacion_lo_mantiene_activo(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        objetivo = self.usuarios[Perfil.Rol.RRHH]
+        response = self.client.post(reverse("procesos:usuario_editar", args=[objetivo.pk]), {
+            "username": objetivo.username, "first_name": "Nuevo", "last_name": "Contratación",
+            "rol": Perfil.Rol.CONTRATACION, "is_active": "",
+        })
+        self.assertRedirects(response, reverse("procesos:usuarios"))
+        objetivo.refresh_from_db()
+        objetivo.perfil.refresh_from_db()
+        self.assertTrue(objetivo.is_active)
+        self.assertEqual(objetivo.perfil.rol, Perfil.Rol.CONTRATACION)
+
+    def test_modelo_impide_desactivar_accesos_esenciales(self):
+        for rol in (Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION):
+            usuario = self.usuarios[rol]
+            usuario.is_active = False
+            usuario.save(update_fields=["is_active"])
+            usuario.refresh_from_db()
+            self.assertTrue(usuario.is_active)
+
+    def test_equipo_oculta_cuentas_sin_rol_operativo(self):
+        cuenta_archivada = self.usuarios[Perfil.Rol.SIN_ASIGNAR]
+        cuenta_archivada.username = "admin-antiguo"
+        cuenta_archivada.save(update_fields=["username"])
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:usuarios"))
+        self.assertNotContains(response, "admin-antiguo")
+
+    def test_informacion_del_candidato_usa_filas_completas(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:detalle", args=[self.proceso.pk]))
+        self.assertContains(response, 'class="candidate-info-row"', count=6)
+        self.assertNotContains(response, 'class="row fs-5 info-list"')
+
     def test_gerente_cambia_password_operativo(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         objetivo = self.usuarios[Perfil.Rol.PSICOLOGIA]

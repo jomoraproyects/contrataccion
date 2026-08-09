@@ -222,8 +222,23 @@ class EditarUsuarioOperativoForm(forms.ModelForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.fields["rol"].initial = self.instance.perfil.rol
+        if self.instance.perfil.rol == Perfil.Rol.CONTRATACION:
+            self.fields["is_active"].disabled = True
+            self.fields["is_active"].initial = True
+            self.fields["is_active"].help_text = "El acceso de Contratación es esencial y no puede bloquearse manualmente."
         for nombre, field in self.fields.items():
-            field.widget.attrs["class"] = "form-check-input" if nombre == "is_active" else "form-control form-control-lg"
+            if nombre == "is_active":
+                field.widget.attrs["class"] = "form-check-input"
+            elif nombre == "rol":
+                field.widget.attrs["class"] = "form-select form-select-lg"
+            else:
+                field.widget.attrs["class"] = "form-control form-control-lg"
+
+    def clean(self):
+        datos = super().clean()
+        if datos.get("rol") == Perfil.Rol.CONTRATACION:
+            datos["is_active"] = True
+        return datos
 
     def save(self, commit=True):
         usuario = super().save(commit=commit)

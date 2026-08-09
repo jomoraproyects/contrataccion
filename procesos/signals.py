@@ -1,8 +1,18 @@
 from django.contrib.auth.models import User
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 
 from .models import Perfil, ProcesoSeleccion
+
+
+@receiver(pre_save, sender=User)
+def proteger_accesos_esenciales(sender, instance, **kwargs):
+    """Evita desactivar las cuentas que mantienen operativo el sistema."""
+    if not instance.pk:
+        return
+    rol = Perfil.objects.filter(usuario_id=instance.pk).values_list("rol", flat=True).first()
+    if rol in (Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION):
+        instance.is_active = True
 
 
 @receiver(post_save, sender=User)

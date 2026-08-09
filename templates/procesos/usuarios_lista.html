@@ -6,7 +6,7 @@
   <a class="btn btn-success btn-lg px-4 py-3 fw-bold" href="{% url 'procesos:usuario_crear' %}">+ Crear usuario</a>
 </div>
 <section class="summary-grid summary-grid-users mb-4" aria-label="Resumen de usuarios"><article class="summary-card summary-green"><span class="summary-icon" aria-hidden="true">✓</span><div><span>Usuarios activos</span><strong>{{ usuarios_activos }}</strong></div></article><article class="summary-card summary-red"><span class="summary-icon" aria-hidden="true">⊘</span><div><span>Usuarios bloqueados</span><strong>{{ usuarios_bloqueados }}</strong></div></article></section>
-<div class="alert alert-info fs-5" role="note"><strong>Control del Gerente:</strong> puede editar datos, cambiar el área, bloquear accesos o establecer una contraseña nueva para las cuentas operativas. Las cuentas de Gerencia son visibles pero están protegidas.</div>
+<div class="alert alert-info fs-5" role="note"><strong>Control del Gerente:</strong> puede editar datos, cambiar el área, bloquear accesos o establecer una contraseña nueva para las cuentas operativas. Gerencia y Contratación son accesos esenciales y no pueden bloquearse manualmente.</div>
 <div class="card border-0 overflow-hidden">
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0 fs-5">
@@ -17,7 +17,7 @@
         <tr>
           <td><div class="person-cell"><span class="person-avatar" aria-hidden="true">{{ usuario_item.first_name|first|default:usuario_item.username|first|upper }}</span><strong>{{ usuario_item.get_full_name|default:"Sin nombre registrado" }}</strong></div></td>
           <td><code>{{ usuario_item.username }}</code></td><td>{{ usuario_item.perfil.get_rol_display }}</td>
-          <td>{% if not usuario_item.is_active %}<span class="badge status-rechazado">Bloqueado</span>{% elif usuario_item.perfil.bloqueo_seguridad_activo %}<span class="badge status-listo_contratacion">Bloqueo temporal</span>{% else %}<span class="badge status-contratado">Activo</span>{% endif %}</td>
+          <td>{% if not usuario_item.is_active %}<span class="badge status-rechazado">Bloqueado</span>{% elif usuario_item.perfil.bloqueo_seguridad_activo %}<span class="badge status-listo_contratacion">Bloqueo temporal de seguridad</span>{% else %}<span class="badge status-contratado">Activo</span>{% endif %}{% if usuario_item.perfil.rol == 'GERENTE' or usuario_item.perfil.rol == 'CONTRATACION' %}<div class="small text-body-secondary mt-1">Acceso esencial</div>{% endif %}</td>
           <td class="text-end">{% if usuario_item.perfil.rol == 'GERENTE' %}<span class="badge text-bg-secondary">Cuenta protegida</span>{% else %}<div class="d-flex flex-wrap justify-content-end gap-2"><a class="btn btn-outline-secondary" href="{% url 'procesos:usuario_editar' usuario_item.pk %}">Editar</a><a class="btn btn-outline-primary" href="{% url 'procesos:usuario_password' usuario_item.pk %}">Cambiar contraseña</a></div>{% endif %}</td>
         </tr>
       {% empty %}<tr><td colspan="5" class="text-center py-5 text-body-secondary">Todavía no hay usuarios.</td></tr>{% endfor %}

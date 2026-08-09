@@ -84,7 +84,12 @@ a, button, input, select, textarea, summary { scroll-margin-top: 1rem; }
 .flow-step.rejected .flow-icon { background: #dc3545; color: white; box-shadow: 0 0 0 2px #dc3545; }
 .flow-step.current .flow-icon { background: #1559a6; color: white; box-shadow: 0 0 0 3px #8bb8ea; }
 .flow-step.done .flow-label, .flow-step.current .flow-label, .flow-step.rejected .flow-label { color: var(--app-text); font-weight: 800; }
-.info-list dt, .info-list dd { padding-top: .55rem; padding-bottom: .55rem; border-bottom: 1px solid var(--app-border); }
+.candidate-info-list { margin: 0; border: 1px solid var(--app-border); border-radius: .8rem; overflow: hidden; }
+.candidate-info-row { display: grid; grid-template-columns: minmax(145px, 42%) 1fr; margin: 0; border-bottom: 1px solid var(--app-border); }
+.candidate-info-row:last-child { border-bottom: 0; }
+.candidate-info-row dt, .candidate-info-row dd { min-width: 0; margin: 0; padding: .85rem 1rem; overflow-wrap: anywhere; }
+.candidate-info-row dt { background: var(--app-surface-soft); font-weight: 800; }
+.candidate-info-row dd { border-left: 1px solid var(--app-border); }
 .timeline-item { border-left: 5px solid #94a3b8; padding: .25rem 0 1.4rem 1.25rem; margin-left: .4rem; }
 .timeline-item.aprobado { border-color: #198754; }
 .timeline-item.rechazado { border-color: #dc3545; }
@@ -204,6 +209,9 @@ code { color: var(--app-text); background: var(--app-surface-soft); border: 1px 
   .login-wrapper { align-items: flex-start !important; padding-top: 5rem !important; }
   .login-card-simple { border-radius: 1rem; }
   .decision-option { width: 100%; }
+  .candidate-info-row { grid-template-columns: 1fr; }
+  .candidate-info-row dt { padding-bottom: .3rem; }
+  .candidate-info-row dd { padding-top: .3rem; border-left: 0; background: var(--app-surface-soft); }
 }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; animation: none !important; }
