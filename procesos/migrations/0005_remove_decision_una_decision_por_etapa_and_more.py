@@ -32,8 +32,4 @@ class Migration(migrations.Migration):
             name='vigente',
             field=models.BooleanField(default=True),
         ),
-        migrations.AddConstraint(
-            model_name='decision',
-            constraint=models.UniqueConstraint(condition=models.Q(('vigente', True)), fields=('proceso', 'etapa'), name='una_decision_vigente_por_etapa'),
-        ),
     ]

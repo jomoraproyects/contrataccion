@@ -83,6 +83,7 @@ def _anular_decisiones_incompatibles(proceso, usuario):
         incompatibles |= Q(etapa__in=etapas_desde_actual)
     proceso.decisiones.filter(vigente=True).filter(incompatibles).update(
         vigente=False,
+        etapa_vigente=None,
         anulada_en=timezone.now(),
         anulada_por_gerencia=usuario,
     )
@@ -92,6 +93,7 @@ def _ajustar_seguimiento_gerencia(proceso, usuario):
     ahora = timezone.now()
     proceso.seguimientos.filter(fin__isnull=True).update(
         fin=ahora,
+        proceso_en_curso=None,
         resultado=SeguimientoEtapa.Resultado.AJUSTADO,
         cerrado_por=usuario,
     )
@@ -289,6 +291,12 @@ def detalle_proceso(request, pk):
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:
+                if not _procesos_visibles(request.user, ProcesoSeleccion.objects.filter(pk=proceso.pk)).exists():
+                    messages.success(
+                        request,
+                        f"La decisión fue guardada. El proceso fue enviado a {proceso.get_etapa_actual_display()}.",
+                    )
+                    return redirect("procesos:lista")
                 messages.success(request, "La decisión fue guardada correctamente.")
                 return redirect("procesos:detalle", pk=proceso.pk)
 

@@ -6,7 +6,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -47,6 +47,20 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(len(seguimientos), 4)
         self.assertEqual([item.plazo_dias for item in seguimientos], [2, 3, 6, 2])
         self.assertTrue(all(item.fin for item in seguimientos))
+
+    def test_aprobar_redirige_al_area_anterior_a_su_bandeja(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        response = self.client.post(reverse("procesos:detalle", args=[self.proceso.pk]), {
+            "resultado": Decision.Resultado.APROBADO,
+            "observacion": "Validación legal finalizada",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(response.url, reverse("procesos:lista"))
+        self.proceso.refresh_from_db()
+        self.assertEqual(self.proceso.etapa_actual, ProcesoSeleccion.Etapa.PSICOLOGIA)
+        response = self.client.get(response.url)
+        self.assertContains(response, "El proceso fue enviado a Psicología")
+        self.assertNotContains(response, "Page not found")
 
     def test_plazos_se_crean_y_avanzan_con_cada_etapa(self):
         seguimiento = self.proceso.seguimientos.get()
@@ -115,6 +129,28 @@ class FlujoProcesoTests(TestCase):
             self.proceso.registrar_decision(self.usuarios[Perfil.Rol.PSICOLOGIA], Decision.Resultado.APROBADO, "Apto")
         with self.assertRaises(ValidationError):
             self.proceso.registrar_decision(self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "  ")
+
+    def test_base_de_datos_impide_dos_decisiones_vigentes_en_la_misma_etapa(self):
+        Decision.objects.create(
+            proceso=self.proceso, etapa=ProcesoSeleccion.Etapa.RRHH,
+            resultado=Decision.Resultado.APROBADO, observacion="Primera decisión válida",
+            decidido_por=self.usuarios[Perfil.Rol.RRHH],
+        )
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Decision.objects.create(
+                    proceso=self.proceso, etapa=ProcesoSeleccion.Etapa.RRHH,
+                    resultado=Decision.Resultado.RECHAZADO, observacion="Duplicado inválido",
+                    decidido_por=self.usuarios[Perfil.Rol.RRHH],
+                )
+
+    def test_base_de_datos_impide_dos_seguimientos_abiertos(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                SeguimientoEtapa.objects.create(
+                    proceso=self.proceso, etapa=ProcesoSeleccion.Etapa.RRHH, ciclo=2,
+                    inicio=timezone.now(), fecha_limite=sumar_dias_habiles(timezone.now(), 2),
+                )
 
     def test_gerente_supervisa_pero_no_decide(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])

@@ -61,10 +61,6 @@ class Migration(migrations.Migration):
             model_name='procesoseleccion',
             constraint=models.CheckConstraint(condition=models.Q(('estado', 'RECHAZADO'), models.Q(('estado__in', ['LISTO_CONTRATACION', 'CONTRATADO']), ('etapa_actual', 'CONTRATACION')), models.Q(('estado', 'EN_CURSO'), ('etapa_actual__in', ['RRHH', 'PSICOLOGIA', 'SEGURIDAD'])), _connector='OR'), name='estado_coherente_con_etapa'),
         ),
-        migrations.AddConstraint(
-            model_name='seguimientoetapa',
-            constraint=models.UniqueConstraint(condition=models.Q(('fin__isnull', True)), fields=('proceso',), name='un_seguimiento_abierto_por_proceso'),
-        ),
         migrations.AddField(
             model_name='eventoseguridad',
             name='usuario',

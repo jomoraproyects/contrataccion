@@ -235,6 +235,7 @@ class Decision(models.Model):
     decidido_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="decisiones")
     fecha = models.DateTimeField(auto_now_add=True)
     vigente = models.BooleanField(default=True)
+    etapa_vigente = models.CharField(max_length=50, unique=True, null=True, blank=True, editable=False)
     anulada_en = models.DateTimeField(null=True, blank=True)
     anulada_por_gerencia = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -247,13 +248,15 @@ class Decision(models.Model):
     class Meta:
         ordering = ["fecha"]
         constraints = [
-            models.UniqueConstraint(
-                fields=["proceso", "etapa"],
-                condition=models.Q(vigente=True),
-                name="una_decision_vigente_por_etapa",
-            ),
             models.CheckConstraint(condition=~Q(observacion=""), name="decision_observacion_no_vacia"),
         ]
+
+    def save(self, *args, **kwargs):
+        """Garantiza una decisión vigente por etapa en MySQL y SQLite."""
+        self.etapa_vigente = f"{self.proceso_id}:{self.etapa}" if self.vigente else None
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"etapa_vigente"}
+        return super().save(*args, **kwargs)
 
     def clean(self):
         if not self.observacion or not self.observacion.strip():
@@ -308,6 +311,7 @@ class SeguimientoEtapa(models.Model):
     fecha_limite = models.DateTimeField()
     segundos_pausados = models.PositiveBigIntegerField(default=0)
     fin = models.DateTimeField(null=True, blank=True)
+    proceso_en_curso = models.PositiveBigIntegerField(unique=True, null=True, blank=True, editable=False)
     resultado = models.CharField(max_length=12, choices=Resultado.choices, blank=True)
     cerrado_por = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -327,10 +331,14 @@ class SeguimientoEtapa(models.Model):
             models.UniqueConstraint(
                 fields=["proceso", "etapa", "ciclo"], name="un_ciclo_por_etapa_proceso"
             ),
-            models.UniqueConstraint(
-                fields=["proceso"], condition=Q(fin__isnull=True), name="un_seguimiento_abierto_por_proceso"
-            ),
         ]
+
+    def save(self, *args, **kwargs):
+        """Impide dos seguimientos abiertos del mismo proceso en MySQL y SQLite."""
+        self.proceso_en_curso = self.proceso_id if self.fin is None else None
+        if kwargs.get("update_fields") is not None:
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"proceso_en_curso"}
+        return super().save(*args, **kwargs)
 
     @property
     def plazo_dias(self):
