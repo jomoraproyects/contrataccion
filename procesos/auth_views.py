@@ -19,12 +19,21 @@ class LoginSeguroView(LoginView):
     max_intentos = 5
     max_intentos_ip = 20
     bloqueo_segundos = 15 * 60
+    roles_sin_bloqueo = (Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
 
     def _usuario_escrito(self):
         return self.request.POST.get("username", "").strip().casefold()
 
     def _usuario_registrado(self):
         return User.objects.select_related("perfil").filter(username__iexact=self._usuario_escrito()).first()
+
+    def _es_acceso_esencial(self, usuario):
+        """Gerencia y Contratacion nunca quedan sin acceso por intentos fallidos."""
+        return bool(usuario and usuario.is_active and usuario.perfil.rol in self.roles_sin_bloqueo)
+
+    def _limpiar_bloqueo_esencial(self, usuario):
+        if usuario and (usuario.perfil.intentos_fallidos or usuario.perfil.bloqueado_hasta):
+            usuario.perfil.limpiar_bloqueo()
 
     def _ip_bloqueada(self):
         ip = obtener_ip_cliente(self.request)
@@ -53,13 +62,16 @@ class LoginSeguroView(LoginView):
 
     def dispatch(self, request, *args, **kwargs):
         if request.method == "POST":
-            if self._ip_bloqueada():
-                return self._respuesta_bloqueada(self.get_form())
             usuario = self._usuario_registrado()
-            if usuario and usuario.perfil.bloqueo_seguridad_activo:
+            acceso_esencial = self._es_acceso_esencial(usuario)
+            if acceso_esencial:
+                self._limpiar_bloqueo_esencial(usuario)
+            elif self._ip_bloqueada():
+                return self._respuesta_bloqueada(self.get_form())
+            if not acceso_esencial and usuario and usuario.perfil.bloqueo_seguridad_activo:
                 segundos = (usuario.perfil.bloqueado_hasta - timezone.now()).total_seconds()
                 return self._respuesta_bloqueada(self.get_form(), segundos)
-            if usuario and usuario.perfil.bloqueado_hasta:
+            if not acceso_esencial and usuario and usuario.perfil.bloqueado_hasta:
                 usuario.perfil.limpiar_bloqueo()
         return super().dispatch(request, *args, **kwargs)
 
@@ -71,6 +83,10 @@ class LoginSeguroView(LoginView):
             usuario=usuario, identificador=identificador, detalle="Credenciales no válidas",
         )
         if not identificador or not self.request.POST.get("password") or not usuario or not usuario.is_active:
+            return self._respuesta_incorrecta(form)
+
+        if self._es_acceso_esencial(usuario):
+            self._limpiar_bloqueo_esencial(usuario)
             return self._respuesta_incorrecta(form)
 
         with transaction.atomic():

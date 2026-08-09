@@ -23,14 +23,18 @@
 <div class="row g-4">
   <div class="col-12 col-xl-5">
     <section class="card shadow-sm border-0 h-100"><div class="card-body p-4"><h2 class="h4 fw-bold mb-4">Información del candidato</h2>
-      <dl class="candidate-info-list fs-5">
-        <div class="candidate-info-row"><dt>Nombre</dt><dd>{{ proceso.nombre_completo }}</dd></div>
-        <div class="candidate-info-row"><dt>Cédula</dt><dd>{{ proceso.cedula }}</dd></div>
-        <div class="candidate-info-row"><dt>Celular</dt><dd>{{ proceso.celular }}</dd></div>
-        <div class="candidate-info-row"><dt>Hoja de vida recibida</dt><dd>{{ proceso.fecha_llegada|date:"d/m/Y" }}</dd></div>
-        <div class="candidate-info-row"><dt>Vacante o área</dt><dd>{{ proceso.vacante }}</dd></div>
-        <div class="candidate-info-row"><dt>Creado por</dt><dd>{{ proceso.creado_por.get_full_name|default:proceso.creado_por.username }}</dd></div>
-      </dl>
+      <div class="candidate-info-wrap">
+        <table class="candidate-info-table fs-5">
+          <tbody>
+            <tr><th scope="row">Nombre</th><td>{{ proceso.nombre_completo }}</td></tr>
+            <tr><th scope="row">Cédula</th><td>{{ proceso.cedula }}</td></tr>
+            <tr><th scope="row">Celular</th><td>{{ proceso.celular }}</td></tr>
+            <tr><th scope="row">Hoja de vida recibida</th><td>{{ proceso.fecha_llegada|date:"d/m/Y" }}</td></tr>
+            <tr><th scope="row">Vacante o área</th><td>{{ proceso.vacante }}</td></tr>
+            <tr><th scope="row">Creado por</th><td>{{ proceso.creado_por.get_full_name|default:proceso.creado_por.username }}</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div></section>
   </div>
   <div class="col-12 col-xl-7">

@@ -253,6 +253,35 @@ class FlujoProcesoTests(TestCase):
         self.assertIsNotNone(perfil.bloqueado_hasta)
         self.assertEqual(self.client.post(url, {"username": "rrhh", "password": "prueba-segura"}).status_code, 429)
 
+    def test_accesos_esenciales_no_se_bloquean_ni_muestran_contador(self):
+        url = reverse("login")
+        for rol in (Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION):
+            usuario = self.usuarios[rol]
+            for _ in range(6):
+                response = self.client.post(url, {
+                    "username": usuario.username, "password": "incorrecta",
+                })
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "El usuario o la contraseña no son correctos")
+                self.assertNotContains(response, "Le quedan")
+                self.assertNotContains(response, "Acceso bloqueado temporalmente")
+            usuario.perfil.refresh_from_db()
+            self.assertEqual(usuario.perfil.intentos_fallidos, 0)
+            self.assertIsNone(usuario.perfil.bloqueado_hasta)
+
+    def test_acceso_esencial_ignora_y_limpia_un_bloqueo_anterior(self):
+        usuario = self.usuarios[Perfil.Rol.GERENTE]
+        usuario.perfil.intentos_fallidos = 5
+        usuario.perfil.bloqueado_hasta = timezone.now() + timedelta(minutes=15)
+        usuario.perfil.save()
+        response = self.client.post(reverse("login"), {
+            "username": usuario.username, "password": "prueba-segura",
+        })
+        self.assertEqual(response.status_code, 302)
+        usuario.perfil.refresh_from_db()
+        self.assertEqual(usuario.perfil.intentos_fallidos, 0)
+        self.assertIsNone(usuario.perfil.bloqueado_hasta)
+
     def test_usuario_desconocido_no_revela_si_existe(self):
         response = self.client.post(reverse("login"), {"username": "no-existe", "password": "incorrecta"})
         self.assertContains(response, "El usuario o la contraseña no son correctos")
@@ -378,7 +407,8 @@ class FlujoProcesoTests(TestCase):
     def test_informacion_del_candidato_usa_filas_completas(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:detalle", args=[self.proceso.pk]))
-        self.assertContains(response, 'class="candidate-info-row"', count=6)
+        self.assertContains(response, 'class="candidate-info-table fs-5"')
+        self.assertContains(response, '<th scope="row">', count=6)
         self.assertNotContains(response, 'class="row fs-5 info-list"')
 
     def test_gerente_cambia_password_operativo(self):
