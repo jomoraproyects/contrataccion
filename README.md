@@ -54,3 +54,17 @@ python manage.py check
 ```
 
 Los archivos de referencia para producción se encuentran en `deploy/`.
+
+## Preparación para el VPS
+
+La aplicación exige MySQL cuando `DEBUG=False` y no inicia con una base SQLite por error. Antes de publicar:
+
+1. Copie `deploy/seleccion.env.example` a `/etc/seleccion/seleccion.env` y aplique permisos `600`.
+2. Genere una `SECRET_KEY` distinta y configure dominio, origen HTTPS y `DATABASE_URL`.
+3. Mantenga `TRUST_PROXY_HEADERS=True` únicamente porque Gunicorn se publica mediante el socket privado de Nginx incluido.
+4. Ejecute migraciones y `collectstatic`, active el servicio y compruebe `/salud/`.
+5. Configure el respaldo diario con `deploy/backup_mysql.sh` y pruebe una restauración antes de operar con datos reales.
+
+Empiece con HSTS de una hora. Después de confirmar que HTTPS funciona correctamente, puede aumentarlo gradualmente.
+
+El límite de intentos se aplica en Django: cinco intentos y 15 minutos para las cuentas operativas, además de protección por IP para usuarios desconocidos. El ejemplo de Nginx no agrega un bloqueo general porque bloquearía también los dos accesos esenciales que la aplicación debe mantener disponibles: Gerencia y Contratación.

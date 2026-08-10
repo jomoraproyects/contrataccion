@@ -29,8 +29,12 @@ def _rol(usuario):
     return getattr(getattr(usuario, "perfil", None), "rol", None)
 
 
-def _exigir_gerente(usuario):
-    if _rol(usuario) != Perfil.Rol.GERENTE:
+def _exigir_gerente(request):
+    if _rol(request.user) != Perfil.Rol.GERENTE:
+        registrar_evento(
+            request, EventoSeguridad.Tipo.ACCESO_DENEGADO, usuario=request.user,
+            identificador=request.user.username, detalle=f"Ruta de Gerencia: {request.path}",
+        )
         raise PermissionDenied("Solo el Gerente puede realizar esta acción.")
 
 
@@ -188,7 +192,7 @@ def lista_procesos(request):
 
 @login_required
 def trazabilidad(request):
-    _exigir_gerente(request.user)
+    _exigir_gerente(request)
     formulario = TrazabilidadFiltroForm(request.GET or None)
     procesos_qs = ProcesoSeleccion.objects.select_related("creado_por").prefetch_related(
         Prefetch(
@@ -341,7 +345,7 @@ def lista_rechazados(request):
 
 @login_required
 def lista_archivados(request):
-    _exigir_gerente(request.user)
+    _exigir_gerente(request)
     qs = ProcesoSeleccion.objects.filter(activo=False)
     contexto = _contexto_lista(
         request, qs, "Candidatos desactivados", "Registros conservados fuera de las listas operativas que pueden restaurarse cuando sea necesario."
@@ -431,7 +435,7 @@ def detalle_proceso(request, pk):
 
 @login_required
 def editar_proceso_gerencia(request, pk):
-    _exigir_gerente(request.user)
+    _exigir_gerente(request)
     proceso = get_object_or_404(ProcesoSeleccion, pk=pk)
     etapa_anterior, estado_anterior = proceso.etapa_actual, proceso.estado
     form = EditarProcesoGerenciaForm(request.POST or None, instance=proceso)
@@ -453,7 +457,7 @@ def editar_proceso_gerencia(request, pk):
 
 @login_required
 def cambiar_actividad_proceso(request, pk):
-    _exigir_gerente(request.user)
+    _exigir_gerente(request)
     proceso = get_object_or_404(ProcesoSeleccion, pk=pk)
     accion = "restaurar" if not proceso.activo else "desactivar"
     form = AccionProcesoForm(request.POST or None)
@@ -498,7 +502,7 @@ def cambiar_actividad_proceso(request, pk):
 
 @login_required
 def lista_usuarios(request):
-    _exigir_gerente(request.user)
+    _exigir_gerente(request)
     usuarios = User.objects.select_related("perfil").exclude(
         perfil__rol=Perfil.Rol.SIN_ASIGNAR
     ).order_by("perfil__rol", "first_name", "username")
@@ -512,14 +516,14 @@ def lista_usuarios(request):
 
 @login_required
 def auditoria_seguridad(request):
-    _exigir_gerente(request.user)
+    _exigir_gerente(request)
     eventos = EventoSeguridad.objects.select_related("usuario")[:200]
     return render(request, "procesos/auditoria_seguridad.html", {"eventos": eventos})
 
 
 @login_required
 def crear_usuario(request):
-    _exigir_gerente(request.user)
+    _exigir_gerente(request)
     form = UsuarioOperativoForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         usuario = form.save()
@@ -539,7 +543,7 @@ def crear_usuario(request):
 
 @login_required
 def cambiar_password_usuario(request, pk):
-    _exigir_gerente(request.user)
+    _exigir_gerente(request)
     usuario = get_object_or_404(User.objects.select_related("perfil"), pk=pk)
     if usuario.perfil.rol == Perfil.Rol.GERENTE:
         raise PermissionDenied("Las cuentas de Gerente no se modifican desde esta pantalla.")
@@ -564,7 +568,7 @@ def cambiar_password_usuario(request, pk):
 
 @login_required
 def editar_usuario(request, pk):
-    _exigir_gerente(request.user)
+    _exigir_gerente(request)
     usuario = get_object_or_404(User.objects.select_related("perfil"), pk=pk)
     if usuario.perfil.rol == Perfil.Rol.GERENTE:
         raise PermissionDenied("Las cuentas de Gerente no se modifican desde esta pantalla.")

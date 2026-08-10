@@ -8,6 +8,7 @@ from django.core.management import call_command
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
+from django.template.loader import render_to_string
 from django.urls import reverse
 from django.utils import timezone
 
@@ -218,6 +219,15 @@ class FlujoProcesoTests(TestCase):
         self.assertContains(response, "Escriba un celular válido")
         self.assertContains(response, "no puede estar en el futuro")
         self.assertFalse(ProcesoSeleccion.objects.filter(cedula="987654").exists())
+
+    def test_edicion_muestra_fecha_existente_en_formato_del_navegador(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:proceso_editar", args=[self.proceso.pk]))
+        self.assertContains(
+            response,
+            f'name="fecha_llegada" value="{self.proceso.fecha_llegada:%Y-%m-%d}"',
+            html=False,
+        )
 
     def test_busqueda_admite_nombre_completo_y_fecha_invalida(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
@@ -652,6 +662,20 @@ class FlujoProcesoTests(TestCase):
         self.assertContains(response, "Inicio de sesión fallido")
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
         self.assertEqual(self.client.get(reverse("procesos:auditoria_seguridad")).status_code, 403)
+        self.assertTrue(EventoSeguridad.objects.filter(tipo=EventoSeguridad.Tipo.ACCESO_DENEGADO).exists())
+
+    @override_settings(DEBUG=False)
+    def test_404_de_produccion_no_expone_rutas_internas(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get("/ruta-que-no-existe/")
+        self.assertEqual(response.status_code, 404)
+        self.assertContains(response, "No encontramos esta página", status_code=404)
+        self.assertNotContains(response, "Using the URLconf", status_code=404)
+
+    def test_pagina_500_de_produccion_es_generica(self):
+        contenido = render_to_string("500.html")
+        self.assertIn("No pudimos completar la operación", contenido)
+        self.assertNotIn("Traceback", contenido)
 
     def test_limite_por_ip_detiene_ataques_distribuidos_a_cuentas(self):
         url = reverse("login")

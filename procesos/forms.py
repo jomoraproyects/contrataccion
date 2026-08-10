@@ -19,7 +19,9 @@ class ProcesoForm(forms.ModelForm):
         model = ProcesoSeleccion
         fields = ["nombre", "apellidos", "cedula", "celular", "fecha_llegada", "vacante"]
         widgets = {
-            "fecha_llegada": forms.DateInput(attrs={"type": "date"}),
+            # Los navegadores solo aceptan ISO en el valor de un input date.
+            # Sin format, la localizacion es-co dejaba vacío el campo al editar.
+            "fecha_llegada": forms.DateInput(format="%Y-%m-%d", attrs={"type": "date"}),
             "nombre": forms.TextInput(attrs={"autofocus": True}),
         }
 

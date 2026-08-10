@@ -1,5 +1,3 @@
-limit_req_zone $binary_remote_addr zone=login:10m rate=10r/m;
-
 server {
     listen 80;
     listen [::]:80;
@@ -27,7 +25,6 @@ server {
     }
 
     location = /ingresar/ {
-        limit_req zone=login burst=5 nodelay;
         include proxy_params;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-Proto https;

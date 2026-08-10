@@ -68,6 +68,8 @@ DATABASES = {
         conn_health_checks=True,
     )
 }
+if not DEBUG and DATABASES["default"]["ENGINE"] != "django.db.backends.mysql":
+    raise ImproperlyConfigured("Producción requiere una DATABASE_URL de MySQL.")
 if DATABASES["default"]["ENGINE"] == "django.db.backends.mysql":
     DATABASES["default"].setdefault("OPTIONS", {}).update({
         "charset": "utf8mb4",
@@ -106,7 +108,9 @@ LOGIN_URL = "login"
 LOGIN_REDIRECT_URL = "procesos:lista"
 LOGOUT_REDIRECT_URL = "login"
 
-SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https")
+# Solo se confían cabeceras del proxy cuando Gunicorn está aislado detrás de Nginx.
+# Esto evita que un cliente directo pueda falsificar X-Forwarded-Proto.
+SECURE_PROXY_SSL_HEADER = ("HTTP_X_FORWARDED_PROTO", "https") if TRUST_PROXY_HEADERS else None
 SECURE_SSL_REDIRECT = not DEBUG
 SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_SECURE = not DEBUG

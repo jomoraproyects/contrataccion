@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block title %}Error temporal{% endblock %}
+{% block content %}
+<div class="error-page text-center">
+  <div class="error-code" aria-hidden="true">500</div>
+  <h1 class="h2 fw-bold">No pudimos completar la operación</h1>
+  <p class="fs-5 text-body-secondary">El sistema encontró un error temporal. No repita la acción varias veces; vuelva a Procesos y, si continúa, comuníquese con soporte.</p>
+  <a class="btn btn-primary btn-lg" href="/">Volver a Procesos</a>
+</div>
+{% endblock %}
