@@ -105,9 +105,14 @@ class FlujoProcesoTests(TestCase):
         self.assertContains(response, "Vencido hace 1 día(s)")
         self.assertContains(response, "Plazo: 6 días")
         self.assertContains(response, "Trazabilidad por candidato")
-        self.assertContains(response, 'class="card trace-process-card border-0"')
+        self.assertContains(response, 'class="card trace-process-card"')
         self.assertContains(response, "Abrir historial completo")
         self.assertNotContains(response, "Etapas finalizadas recientemente")
+
+    def test_estilos_principales_tienen_version_para_evitar_cache_antigua(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:trazabilidad"))
+        self.assertContains(response, "css/app.css?v=20260809.3")
 
     def test_trazabilidad_filtra_por_fecha_estado_nombre_y_vacante(self):
         otro = ProcesoSeleccion.objects.create(

@@ -61,13 +61,13 @@
   <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-2 mb-3"><div><h2 id="titulo-procesos-traza" class="h3 fw-bold mb-1">Trazabilidad por candidato</h2><p class="text-body-secondary mb-0">La información de las etapas permanece cerrada para mantener una vista limpia.</p></div><span class="fw-semibold">{{ total_procesos }} resultado{{ total_procesos|pluralize }}</span></div>
   <div class="trace-process-list">
     {% for proceso in procesos %}
-    <details class="card trace-process-card border-0">
+    <details class="card trace-process-card">
       <summary class="trace-process-summary">
         <div class="person-cell"><span class="person-avatar" aria-hidden="true">{{ proceso.nombre|first|upper }}{{ proceso.apellidos|first|upper }}</span><div><strong>{{ proceso.nombre_completo }}</strong><small>{{ proceso.cedula }} · {{ proceso.vacante }}</small></div></div>
         <div class="trace-summary-item"><span>Etapa actual</span><strong>{{ proceso.get_etapa_actual_display }}</strong><small>{{ proceso.get_estado_display }}</small></div>
         <div class="trace-summary-item"><span>Tiempo acumulado</span><strong>{{ proceso.traza_total_horas }} h hábiles</strong>{% if proceso.traza_mas_lenta %}<small>Mayor: {{ proceso.traza_mas_lenta.get_etapa_display }} ({{ proceso.traza_mas_lenta.duracion_horas }} h)</small>{% endif %}</div>
-        <div class="trace-summary-item"><span>Situación</span><span class="badge rounded-pill text-bg-{{ proceso.traza_clase_plazo }}">{{ proceso.traza_estado_plazo }}</span>{% if proceso.traza_fuera_tiempo %}<small class="text-danger">{{ proceso.traza_fuera_tiempo }} etapa{{ proceso.traza_fuera_tiempo|pluralize }} fuera de tiempo</small>{% else %}<small>Sin retrasos registrados</small>{% endif %}</div>
-        <span class="trace-toggle" aria-hidden="true">Ver etapas <span>⌄</span></span>
+        <div class="trace-summary-item trace-summary-situation"><span>Cumplimiento</span><span class="badge rounded-pill text-bg-{{ proceso.traza_clase_plazo }}">{{ proceso.traza_estado_plazo }}</span>{% if proceso.traza_fuera_tiempo %}<small class="text-danger">{{ proceso.traza_fuera_tiempo }} etapa{{ proceso.traza_fuera_tiempo|pluralize }} fuera de tiempo</small>{% else %}<small>Sin retrasos registrados</small>{% endif %}</div>
+        <span class="trace-toggle" aria-hidden="true"><span class="trace-toggle-label">Ver etapas</span><span class="trace-chevron">⌄</span></span>
       </summary>
       <div class="trace-process-detail">
         <div class="table-responsive"><table class="table tracking-table align-middle mb-0"><thead><tr><th>Etapa</th><th>Plazo</th><th>Inicio y finalización</th><th>Tiempo hábil</th><th>Resultado</th><th>Cumplimiento</th></tr></thead><tbody>
