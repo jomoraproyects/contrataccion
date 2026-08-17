@@ -4,7 +4,13 @@ from django.db import models, transaction
 from django.db.models import Q
 from django.utils import timezone
 
-from .calendario import dias_habiles_restantes, segundos_habiles_entre, sumar_dias_habiles
+from .calendario import (
+    SEGUNDOS_JORNADA_LABORAL,
+    dias_habiles_restantes,
+    segundos_habiles_entre,
+    sumar_dias_habiles,
+)
+from .validacion import normalizar_cedula, normalizar_celular
 
 
 PLAZOS_ETAPA_DIAS = {
@@ -42,6 +48,27 @@ class Perfil(models.Model):
         return f"{self.usuario.get_full_name() or self.usuario.username} - {self.get_rol_display()}"
 
 
+class Candidato(models.Model):
+    """Identidad única de una persona, reutilizable en varias postulaciones."""
+
+    nombre = models.CharField(max_length=100)
+    apellidos = models.CharField(max_length=120)
+    cedula = models.CharField("número de cédula", max_length=30, unique=True)
+    celular = models.CharField("número de celular", max_length=30)
+    creado_en = models.DateTimeField(auto_now_add=True)
+    actualizado_en = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["nombre", "apellidos"]
+
+    @property
+    def nombre_completo(self):
+        return f"{self.nombre} {self.apellidos}"
+
+    def __str__(self):
+        return f"{self.nombre_completo} - {self.cedula}"
+
+
 class ProcesoSeleccion(models.Model):
     class Etapa(models.TextChoices):
         RRHH = "RRHH", "Talento Humano"
@@ -55,6 +82,11 @@ class ProcesoSeleccion(models.Model):
         CONTRATADO = "CONTRATADO", "Contratado"
         RECHAZADO = "RECHAZADO", "Rechazado"
 
+    candidato = models.ForeignKey(
+        Candidato,
+        on_delete=models.PROTECT,
+        related_name="procesos",
+    )
     nombre = models.CharField(max_length=100)
     apellidos = models.CharField(max_length=120)
     cedula = models.CharField("número de cédula", max_length=30, db_index=True)
@@ -102,11 +134,37 @@ class ProcesoSeleccion(models.Model):
         return self.activo and self.estado in (self.Estado.EN_CURSO, self.Estado.LISTO_CONTRATACION)
 
     def save(self, *args, **kwargs):
-        """Mantiene una cédula única para procesos abiertos en MySQL y SQLite."""
+        """Sincroniza la identidad única y protege una sola postulación abierta."""
+        self.cedula = normalizar_cedula(self.cedula)
+        self.celular = normalizar_celular(self.celular)
+        identidad_existente = Candidato.objects.filter(cedula=self.cedula).first()
+        if self.pk and identidad_existente and self.candidato_id != identidad_existente.pk:
+            raise ValidationError(
+                {"cedula": "Esta cédula pertenece a otra persona y no puede combinarse con este historial."}
+            )
+        candidato, creado = Candidato.objects.get_or_create(
+            cedula=self.cedula,
+            defaults={
+                "nombre": self.nombre,
+                "apellidos": self.apellidos,
+                "celular": self.celular,
+            },
+        )
+        self.candidato = candidato
         self.cedula_proceso_abierto = self.cedula if self.proceso_abierto else None
         if kwargs.get("update_fields") is not None:
-            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"cedula_proceso_abierto"}
-        return super().save(*args, **kwargs)
+            kwargs["update_fields"] = set(kwargs["update_fields"]) | {"candidato", "cedula_proceso_abierto"}
+        resultado = super().save(*args, **kwargs)
+        if not creado:
+            cambios = []
+            for campo in ("nombre", "apellidos", "celular"):
+                valor = getattr(self, campo)
+                if getattr(candidato, campo) != valor:
+                    setattr(candidato, campo, valor)
+                    cambios.append(campo)
+            if cambios:
+                candidato.save(update_fields=cambios + ["actualizado_en"])
+        return resultado
 
     @property
     def nombre_completo(self):
@@ -136,11 +194,12 @@ class ProcesoSeleccion(models.Model):
     @property
     def duracion_total_legible(self):
         horas = self.duracion_total_horas
-        if horas < 24:
+        horas_jornada = SEGUNDOS_JORNADA_LABORAL / 3600
+        if horas < horas_jornada:
             return f"{horas:g} horas"
-        dias = int(horas // 24)
-        horas_restantes = round(horas - dias * 24, 1)
-        return f"{dias} día(s) y {horas_restantes:g} horas"
+        jornadas = int(horas // horas_jornada)
+        horas_restantes = round(horas - jornadas * horas_jornada, 1)
+        return f"{jornadas} jornada(s) y {horas_restantes:g} horas"
 
     @property
     def cumplimiento_etapas(self):
@@ -231,7 +290,7 @@ class Decision(models.Model):
     proceso = models.ForeignKey(ProcesoSeleccion, on_delete=models.CASCADE, related_name="decisiones")
     etapa = models.CharField(max_length=20, choices=ProcesoSeleccion.Etapa.choices)
     resultado = models.CharField(max_length=12, choices=Resultado.choices)
-    observacion = models.TextField()
+    observacion = models.TextField(max_length=2000)
     decidido_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="decisiones")
     fecha = models.DateTimeField(auto_now_add=True)
     vigente = models.BooleanField(default=True)

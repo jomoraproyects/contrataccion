@@ -42,7 +42,7 @@
 {% endif %}
 
 <section class="mb-4" aria-labelledby="titulo-indicadores-etapa">
-  <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3"><div><h2 id="titulo-indicadores-etapa" class="h3 fw-bold mb-1">Comportamiento por etapa</h2><p class="text-body-secondary mb-0">Los indicadores responden a los filtros aplicados arriba.</p></div><span class="text-body-secondary">Se excluyen sábados, domingos y festivos de Colombia</span></div>
+  <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3"><div><h2 id="titulo-indicadores-etapa" class="h3 fw-bold mb-1">Comportamiento por etapa</h2><p class="text-body-secondary mb-0">Los indicadores responden a los filtros aplicados arriba.</p></div><span class="text-body-secondary">Horario medido: 7:00 a. m. a 4:00 p. m.; se excluyen sábados, domingos y festivos</span></div>
   <div class="sla-grid">
     {% for metrica in metricas %}
     <article class="card trace-stage-card border-0 {% if metrica.es_cuello_botella %}is-bottleneck{% endif %}">

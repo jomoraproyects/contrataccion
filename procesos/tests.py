@@ -5,6 +5,7 @@ from django.contrib.auth.hashers import identify_hasher, make_password
 from django.conf import settings
 from django.core.cache import cache
 from django.core.management import call_command
+from django.core.management.base import CommandError
 from django.core.exceptions import ValidationError
 from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
@@ -13,7 +14,8 @@ from django.urls import reverse
 from django.utils import timezone
 
 from .calendario import es_dia_habil, segundos_habiles_entre, sumar_dias_habiles, sumar_segundos_habiles
-from .models import CambioGerencia, Decision, EventoSeguridad, Perfil, ProcesoSeleccion, SeguimientoEtapa
+from .models import Candidato, CambioGerencia, Decision, EventoSeguridad, Perfil, ProcesoSeleccion, SeguimientoEtapa
+from .signals import crear_perfil, iniciar_control_de_tiempo
 
 
 @override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
@@ -81,6 +83,27 @@ class FlujoProcesoTests(TestCase):
         self.assertFalse(es_dia_habil(date(2026, 8, 7)))  # Batalla de Boyacá
         self.assertFalse(es_dia_habil(date(2026, 8, 8)))  # Sábado
         self.assertEqual(limite, timezone.make_aware(datetime(2026, 8, 11, 9, 0)))
+
+    def test_tiempo_habil_solo_cuenta_de_siete_a_cuatro(self):
+        inicio = timezone.make_aware(datetime(2026, 8, 10, 6, 0))
+        fin = timezone.make_aware(datetime(2026, 8, 10, 18, 0))
+        self.assertEqual(segundos_habiles_entre(inicio, fin), 9 * 60 * 60)
+
+        inicio_tarde = timezone.make_aware(datetime(2026, 8, 10, 15, 0))
+        limite = sumar_dias_habiles(inicio_tarde, 1)
+        self.assertEqual(limite, timezone.make_aware(datetime(2026, 8, 11, 15, 0)))
+
+    def test_asignacion_fuera_de_horario_empieza_en_siguiente_jornada(self):
+        inicio = timezone.make_aware(datetime(2026, 8, 10, 18, 30))
+        limite = sumar_dias_habiles(inicio, 1)
+        self.assertEqual(limite, timezone.make_aware(datetime(2026, 8, 11, 16, 0)))
+
+    def test_duracion_legible_usa_jornadas_de_nueve_horas(self):
+        seguimiento = self.proceso.seguimientos.get()
+        seguimiento.inicio = timezone.make_aware(datetime(2026, 8, 10, 7, 0))
+        seguimiento.fin = timezone.make_aware(datetime(2026, 8, 11, 9, 0))
+        seguimiento.save(update_fields=["inicio", "fin"])
+        self.assertEqual(self.proceso.duracion_total_legible, "1 jornada(s) y 2 horas")
 
     def test_panel_del_rol_notifica_asignaciones_y_dias_restantes(self):
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
@@ -628,6 +651,81 @@ class FlujoProcesoTests(TestCase):
         })
         self.assertRedirects(response, reverse("procesos:detalle", args=[2]))
         self.assertEqual(ProcesoSeleccion.objects.filter(cedula="12345").count(), 2)
+        procesos = list(ProcesoSeleccion.objects.filter(cedula="12345").order_by("pk"))
+        self.assertEqual(procesos[0].candidato_id, procesos[1].candidato_id)
+        self.assertEqual(Candidato.objects.filter(cedula="12345").count(), 1)
+
+    def test_consulta_cedula_recupera_datos_e_historial(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        response = self.client.get(reverse("procesos:consultar_candidato_cedula"), {"cedula": "12.345"})
+        self.assertEqual(response.status_code, 200)
+        datos = response.json()
+        self.assertTrue(datos["encontrado"])
+        self.assertTrue(datos["proceso_abierto"])
+        self.assertEqual(datos["nombre"], "Ana")
+        self.assertEqual(datos["cantidad_procesos"], 1)
+        self.assertEqual(datos["ultimo_proceso"]["vacante"], "Contabilidad")
+
+    def test_consulta_cedula_solo_es_para_contratacion(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        response = self.client.get(reverse("procesos:consultar_candidato_cedula"), {"cedula": "12345"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_formulario_nuevo_incluye_alerta_de_cedula_existente(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        response = self.client.get(reverse("procesos:crear"))
+        self.assertContains(response, "data-candidate-lookup-url")
+        self.assertContains(response, "data-candidate-match")
+
+    def test_consulta_cedula_rechaza_caracteres_no_permitidos_y_post(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        url = reverse("procesos:consultar_candidato_cedula")
+        self.assertFalse(self.client.get(url, {"cedula": "abc12345"}).json()["encontrado"])
+        self.assertEqual(self.client.post(url, {"cedula": "12345"}).status_code, 405)
+
+    def test_gerencia_no_puede_combinar_historiales_cambiando_la_cedula(self):
+        ProcesoSeleccion.objects.create(
+            nombre="Carlos", apellidos="Rojas", cedula="987654", celular="3101234567",
+            fecha_llegada=date.today(), vacante="Sistemas",
+            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.post(reverse("procesos:proceso_editar", args=[self.proceso.pk]), {
+            "nombre": "Ana", "apellidos": "Pérez", "cedula": "987654",
+            "celular": "3001234567", "fecha_llegada": date.today().isoformat(),
+            "vacante": "Contabilidad", "motivo_cambio": "Corrección solicitada",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "no puede combinarse con este historial")
+        self.proceso.refresh_from_db()
+        self.assertEqual(self.proceso.cedula, "12345")
+
+    def test_observacion_tiene_limite_para_evitar_cargas_excesivas(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        response = self.client.post(reverse("procesos:detalle", args=[self.proceso.pk]), {
+            "resultado": Decision.Resultado.APROBADO,
+            "observacion": "x" * 2001,
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Asegúrese de que este valor tenga como máximo 2000 caracteres")
+        self.assertFalse(self.proceso.decisiones.exists())
+
+    def test_identidad_de_candidato_impide_cedulas_duplicadas(self):
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Candidato.objects.create(
+                    nombre="Otra", apellidos="Persona", cedula="12345", celular="3009999999"
+                )
+
+    def test_carga_de_datos_no_duplica_perfiles_ni_seguimientos(self):
+        perfiles_antes = Perfil.objects.count()
+        seguimientos_antes = self.proceso.seguimientos.count()
+        crear_perfil(sender=User, instance=self.usuarios[Perfil.Rol.RRHH], created=True, raw=True)
+        iniciar_control_de_tiempo(
+            sender=ProcesoSeleccion, instance=self.proceso, created=True, raw=True
+        )
+        self.assertEqual(Perfil.objects.count(), perfiles_antes)
+        self.assertEqual(self.proceso.seguimientos.count(), seguimientos_antes)
 
     def test_busqueda_trata_intento_sql_como_texto(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
@@ -737,3 +835,8 @@ class ConfiguracionSeguridadTests(TestCase):
     def test_bcrypt_sha256_es_el_hasher_principal(self):
         self.assertEqual(settings.PASSWORD_HASHERS[0], "django.contrib.auth.hashers.BCryptSHA256PasswordHasher")
         self.assertEqual(identify_hasher(make_password("ClaveLarga2026!", hasher="bcrypt_sha256")).algorithm, "bcrypt_sha256")
+
+    @override_settings(DEBUG=False)
+    def test_usuarios_demo_no_se_pueden_crear_en_produccion(self):
+        with self.assertRaises(CommandError):
+            call_command("crear_usuarios_demo", password="ClaveTemporalSoloPruebas2026!")

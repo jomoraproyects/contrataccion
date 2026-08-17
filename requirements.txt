@@ -4,4 +4,5 @@ dj-database-url==3.1.2
 gunicorn==23.0.0
 holidays==0.102
 mysqlclient==2.2.8
+sqlparse==0.6.0
 whitenoise==6.12.0

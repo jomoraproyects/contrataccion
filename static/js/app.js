@@ -52,6 +52,49 @@
     });
   });
 
+  const formularioCandidato = document.querySelector("form[data-candidate-lookup-url]");
+  if (formularioCandidato) {
+    const campoCedula = document.getElementById("id_cedula");
+    const aviso = formularioCandidato.querySelector("[data-candidate-match]");
+    let consultaActual = 0;
+
+    async function consultarCedula() {
+      const cedula = (campoCedula.value || "").replace(/[.\s-]/g, "");
+      const numeroConsulta = ++consultaActual;
+      aviso.classList.add("d-none");
+      aviso.textContent = "";
+      aviso.classList.remove("alert-danger", "alert-info");
+      if (!/^\d{5,15}$/.test(cedula)) return;
+      try {
+        const respuesta = await fetch(
+          formularioCandidato.dataset.candidateLookupUrl + "?cedula=" + encodeURIComponent(cedula),
+          {headers: {"Accept": "application/json"}, credentials: "same-origin"}
+        );
+        if (!respuesta.ok || numeroConsulta !== consultaActual) return;
+        const datos = await respuesta.json();
+        if (!datos.encontrado) return;
+        document.getElementById("id_nombre").value = datos.nombre;
+        document.getElementById("id_apellidos").value = datos.apellidos;
+        document.getElementById("id_celular").value = datos.celular;
+        const ultimo = datos.ultimo_proceso;
+        if (datos.proceso_abierto) {
+          aviso.classList.add("alert-danger");
+          aviso.textContent = "Esta persona ya está registrada y tiene un proceso activo. Debe finalizarlo o desactivarlo antes de crear otro.";
+        } else {
+          aviso.classList.add("alert-info");
+          aviso.textContent = "Persona ya registrada. Se recuperaron sus datos. Tiene " + datos.cantidad_procesos +
+            " proceso(s) anterior(es)" + (ultimo ? ". Último: " + ultimo.vacante + " · " + ultimo.estado + " · " + ultimo.fecha + "." : ".");
+        }
+        aviso.classList.remove("d-none");
+      } catch (error) {
+        // La validación del servidor seguirá protegiendo el registro si falla la consulta visual.
+      }
+    }
+
+    campoCedula.addEventListener("change", consultarCedula);
+    campoCedula.addEventListener("blur", consultarCedula);
+  }
+
   const resumenError = document.querySelector("[data-error-summary]");
   if (resumenError) resumenError.focus();
 })();

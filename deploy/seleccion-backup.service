@@ -1,0 +1,13 @@
+[Unit]
+Description=Respaldo verificado de la base de datos de Selección
+After=mysql.service
+
+[Service]
+Type=oneshot
+User=root
+EnvironmentFile=/etc/seleccion/seleccion.env
+ExecStart=/usr/local/sbin/seleccion-backup
+UMask=0077
+PrivateTmp=true
+ProtectHome=true
+NoNewPrivileges=true

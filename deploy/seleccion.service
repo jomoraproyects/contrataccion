@@ -1,6 +1,7 @@
 [Unit]
 Description=Procesos de contratación Django
-After=network.target mysql.service
+Wants=network-online.target
+After=network-online.target mysql.service
 
 [Service]
 Type=notify
@@ -15,10 +16,21 @@ KillSignal=SIGQUIT
 TimeoutStopSec=30
 Restart=on-failure
 RestartSec=5
+UMask=0027
 PrivateTmp=true
-ProtectSystem=full
+PrivateDevices=true
+ProtectSystem=strict
 ProtectHome=true
 NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SystemCallArchitectures=native
+LimitNOFILE=4096
 
 [Install]
 WantedBy=multi-user.target

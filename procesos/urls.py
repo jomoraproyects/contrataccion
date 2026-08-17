@@ -10,6 +10,7 @@ urlpatterns = [
     path("rechazados/", views.lista_rechazados, name="rechazados"),
     path("archivados/", views.lista_archivados, name="archivados"),
     path("trazabilidad/", views.trazabilidad, name="trazabilidad"),
+    path("candidatos/consultar-cedula/", views.consultar_candidato_cedula, name="consultar_candidato_cedula"),
     path("nuevo/", views.crear_proceso, name="crear"),
     path("candidato/<int:pk>/", views.detalle_proceso, name="detalle"),
     path("candidato/<int:pk>/editar/", views.editar_proceso_gerencia, name="proceso_editar"),

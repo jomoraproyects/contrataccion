@@ -1,6 +1,17 @@
 CREATE DATABASE seleccion CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
 CREATE USER 'seleccion'@'127.0.0.1' IDENTIFIED BY 'CAMBIE_ESTA_CLAVE_LARGA';
-GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP ON seleccion.* TO 'seleccion'@'127.0.0.1';
+CREATE USER 'seleccion_migracion'@'127.0.0.1' IDENTIFIED BY 'CAMBIE_ESTA_OTRA_CLAVE_LARGA';
+CREATE USER 'seleccion_respaldo'@'127.0.0.1' IDENTIFIED BY 'CAMBIE_ESTA_TERCERA_CLAVE_LARGA';
+
+-- Django usa diariamente una cuenta sin permisos para cambiar o borrar tablas.
+GRANT SELECT, INSERT, UPDATE, DELETE ON seleccion.* TO 'seleccion'@'127.0.0.1';
+
+-- Esta cuenta se usa solamente al ejecutar manage.py migrate durante un despliegue.
+GRANT SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, INDEX, DROP, REFERENCES
+ON seleccion.* TO 'seleccion_migracion'@'127.0.0.1';
+
+-- Cuenta de solo lectura para mysqldump.
+GRANT SELECT, SHOW VIEW, TRIGGER, EVENT ON seleccion.* TO 'seleccion_respaldo'@'127.0.0.1';
 FLUSH PRIVILEGES;
 
 -- La clave de respaldo se guarda aparte en /etc/seleccion/mysql-backup.cnf

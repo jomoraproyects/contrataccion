@@ -9,6 +9,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.utils.dateparse import parse_date
+from django.views.decorators.http import require_GET
 
 from .forms import (
     AccionProcesoForm,
@@ -21,8 +22,9 @@ from .forms import (
     UsuarioOperativoForm,
 )
 from .calendario import segundos_habiles_entre, sumar_segundos_habiles
-from .models import CambioGerencia, EventoSeguridad, Perfil, ProcesoSeleccion, SeguimientoEtapa
+from .models import Candidato, CambioGerencia, EventoSeguridad, Perfil, ProcesoSeleccion, SeguimientoEtapa
 from .security import registrar_evento
+from .validacion import normalizar_cedula
 
 
 def _rol(usuario):
@@ -148,6 +150,7 @@ def _contexto_lista(request, queryset, titulo, descripcion):
     }
 
 
+@require_GET
 def salud(request):
     """Comprobación mínima para el balanceador, sin exponer datos internos."""
     try:
@@ -157,6 +160,39 @@ def salud(request):
     except Exception:
         return JsonResponse({"estado": "no_disponible"}, status=503)
     return JsonResponse({"estado": "ok"})
+
+
+@login_required
+@require_GET
+def consultar_candidato_cedula(request):
+    """Permite a Contratación reutilizar una identidad sin duplicar la cédula."""
+    _exigir_roles(request, Perfil.Rol.CONTRATACION)
+    try:
+        cedula = normalizar_cedula(request.GET.get("cedula", ""))
+    except ValidationError:
+        return JsonResponse({"encontrado": False})
+    candidato = Candidato.objects.filter(cedula=cedula).first()
+    if not candidato:
+        return JsonResponse({"encontrado": False})
+    procesos = candidato.procesos.order_by("-creado_en")
+    ultimo = procesos.first()
+    abierto = procesos.filter(
+        activo=True,
+        estado__in=[ProcesoSeleccion.Estado.EN_CURSO, ProcesoSeleccion.Estado.LISTO_CONTRATACION],
+    ).first()
+    return JsonResponse({
+        "encontrado": True,
+        "nombre": candidato.nombre,
+        "apellidos": candidato.apellidos,
+        "celular": candidato.celular,
+        "cantidad_procesos": procesos.count(),
+        "proceso_abierto": bool(abierto),
+        "ultimo_proceso": {
+            "vacante": ultimo.vacante,
+            "estado": ultimo.get_estado_display(),
+            "fecha": ultimo.fecha_llegada.strftime("%d/%m/%Y"),
+        } if ultimo else None,
+    })
 
 
 @login_required

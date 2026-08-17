@@ -13,8 +13,12 @@ def env_bool(nombre, defecto=False):
 
 SECRET_KEY = os.environ.get("SECRET_KEY", "solo-desarrollo-cambiar-en-produccion")
 DEBUG = env_bool("DEBUG", True)
-if not DEBUG and SECRET_KEY == "solo-desarrollo-cambiar-en-produccion":
-    raise ImproperlyConfigured("Debe configurar SECRET_KEY antes de iniciar en producción.")
+if not DEBUG and (
+    SECRET_KEY == "solo-desarrollo-cambiar-en-produccion"
+    or SECRET_KEY.startswith("GENERE_")
+    or len(SECRET_KEY) < 50
+):
+    raise ImproperlyConfigured("Debe configurar una SECRET_KEY aleatoria de al menos 50 caracteres.")
 ALLOWED_HOSTS = [h.strip() for h in os.environ.get("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
 CSRF_TRUSTED_ORIGINS = [u.strip() for u in os.environ.get("CSRF_TRUSTED_ORIGINS", "").split(",") if u.strip()]
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -23,6 +27,10 @@ if not DEBUG and not DATABASE_URL:
     raise ImproperlyConfigured("Debe configurar DATABASE_URL con MySQL en producción.")
 if not DEBUG and set(ALLOWED_HOSTS) <= {"localhost", "127.0.0.1"}:
     raise ImproperlyConfigured("Debe configurar ALLOWED_HOSTS con el dominio de producción.")
+if not DEBUG and "*" in ALLOWED_HOSTS:
+    raise ImproperlyConfigured("ALLOWED_HOSTS no puede utilizar comodines en producción.")
+if not DEBUG and (not CSRF_TRUSTED_ORIGINS or any(not origen.startswith("https://") for origen in CSRF_TRUSTED_ORIGINS)):
+    raise ImproperlyConfigured("Debe configurar CSRF_TRUSTED_ORIGINS únicamente con orígenes HTTPS.")
 
 INSTALLED_APPS = [
     "django.contrib.auth",
@@ -64,7 +72,7 @@ WSGI_APPLICATION = "seleccion_personal.wsgi.application"
 DATABASES = {
     "default": dj_database_url.config(
         default=DATABASE_URL or f"sqlite:///{BASE_DIR / 'db.sqlite3'}",
-        conn_max_age=600,
+        conn_max_age=int(os.environ.get("DB_CONN_MAX_AGE", "600")),
         conn_health_checks=True,
     )
 }
@@ -74,6 +82,8 @@ if DATABASES["default"]["ENGINE"] == "django.db.backends.mysql":
     DATABASES["default"].setdefault("OPTIONS", {}).update({
         "charset": "utf8mb4",
         "init_command": "SET sql_mode='STRICT_TRANS_TABLES'",
+        "connect_timeout": 5,
+        "isolation_level": "read committed",
     })
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -149,7 +159,15 @@ SECURE_CSP = {
 LOGGING = {
     "version": 1,
     "disable_existing_loggers": False,
-    "handlers": {"console": {"class": "logging.StreamHandler"}},
+    "formatters": {
+        "produccion": {
+            "format": "{asctime} {levelname} {name} {message}",
+            "style": "{",
+        },
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "produccion"},
+    },
     "root": {"handlers": ["console"], "level": os.environ.get("LOG_LEVEL", "INFO")},
     "loggers": {
         "django.security": {"handlers": ["console"], "level": "WARNING", "propagate": False},

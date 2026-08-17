@@ -1,0 +1,54 @@
+# Sustituya seleccion.interno.empresa.com, la ruta del certificado y, si se desea,
+# limite allow/deny a la subred real de la empresa.
+server {
+    listen 80 default_server;
+    listen [::]:80 default_server;
+    server_name _;
+    return 301 https://seleccion.interno.empresa.com$request_uri;
+}
+
+server {
+    listen 443 ssl default_server;
+    listen [::]:443 ssl default_server;
+    server_name _;
+    ssl_certificate /etc/seleccion/tls/seleccion.crt;
+    ssl_certificate_key /etc/seleccion/tls/seleccion.key;
+    return 444;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name seleccion.interno.empresa.com;
+    server_tokens off;
+
+    ssl_certificate /etc/seleccion/tls/seleccion.crt;
+    ssl_certificate_key /etc/seleccion/tls/seleccion.key;
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:SSL:10m;
+
+    client_max_body_size 1m;
+    client_body_timeout 15s;
+    client_header_timeout 15s;
+    keepalive_timeout 30s;
+
+    # Ejemplo opcional; ajuste la subred antes de activarlo.
+    # allow 192.168.10.0/24;
+    # deny all;
+
+    location /static/ {
+        alias /var/www/seleccion/staticfiles/;
+        access_log off;
+        expires 7d;
+    }
+
+    location / {
+        include proxy_params;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_connect_timeout 5s;
+        proxy_read_timeout 65s;
+        proxy_pass http://unix:/run/seleccion/gunicorn.sock;
+    }
+}

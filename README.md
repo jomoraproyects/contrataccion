@@ -9,7 +9,8 @@ Permite registrar candidatos, llevarlos por Talento Humano, Psicología, Segurid
 - Registro de candidatos sin adjuntar hojas de vida.
 - Flujo secuencial sin saltar etapas.
 - Aprobación o rechazo con observación obligatoria.
-- Alertas dentro del sistema y días hábiles restantes.
+- Alertas dentro del sistema y tiempo laboral restante, contado de 7:00 a. m. a 4:00 p. m. en días hábiles.
+- Identidad única por cédula, con reutilización de datos e historial cuando una persona vuelve a postularse.
 - Historial de decisiones y trazabilidad resumida por candidato para Gerencia.
 - Filtros de fechas, estado, etapa, vacante y cumplimiento, con detección de cuellos de botella.
 - Procesos rechazados, contratados y archivados sin borrar información.
@@ -30,7 +31,7 @@ Permite registrar candidatos, llevarlos por Talento Humano, Psicología, Segurid
 - Python y Django con templates.
 - Bootstrap y JavaScript.
 - SQLite para desarrollo y MySQL 8+ para producción.
-- Gunicorn y Nginx para el VPS.
+- Gunicorn y Nginx para el servidor local de la empresa.
 - WhiteNoise y `holidays`.
 
 ## Uso local
@@ -53,9 +54,10 @@ python manage.py test
 python manage.py check
 ```
 
-Los archivos de referencia para producción se encuentran en `deploy/`.
+Los archivos de referencia para producción se encuentran en `deploy/`. La guía para
+Ubuntu, red interna, MySQL, HTTPS y respaldos está en `deploy/INSTALACION_LOCAL.md`.
 
-## Preparación para el VPS
+## Preparación para producción local
 
 La aplicación exige MySQL cuando `DEBUG=False` y no inicia con una base SQLite por error. Antes de publicar:
 

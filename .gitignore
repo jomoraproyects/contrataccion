@@ -7,3 +7,6 @@ staticfiles/
 .idea/
 .vscode/
 .pip-audit-cache/
+datos_migracion*.json
+*.sql.gz
+*.sql.gz.sha256

@@ -20,7 +20,7 @@ jobs:
           --health-cmd "mysqladmin ping -h localhost -uroot -proot-no-produccion"
           --health-interval 10s --health-timeout 5s --health-retries 5
     env:
-      SECRET_KEY: clave-exclusiva-para-pruebas-automatizadas
+      SECRET_KEY: clave-exclusiva-para-pruebas-automatizadas-con-mas-de-cincuenta-caracteres
       DEBUG: "True"
       DATABASE_URL: mysql://seleccion:test-no-produccion@127.0.0.1:3306/seleccion_test
     steps:
@@ -30,6 +30,8 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - run: pip install pip-audit==2.10.1
+      - run: pip-audit -r requirements.txt
       - run: python manage.py migrate --noinput
       - run: python manage.py check --deploy
         env:

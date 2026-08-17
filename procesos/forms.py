@@ -1,11 +1,10 @@
-import re
-
 from django import forms
 from django.contrib.auth.forms import SetPasswordForm, UserCreationForm
 from django.contrib.auth.models import User
 from django.utils import timezone
 
-from .models import Decision, Perfil, ProcesoSeleccion
+from .models import Candidato, Decision, Perfil, ProcesoSeleccion
+from .validacion import normalizar_cedula, normalizar_celular
 
 
 ROLES_OPERATIVOS = [
@@ -31,9 +30,12 @@ class ProcesoForm(forms.ModelForm):
             field.widget.attrs["class"] = "form-control form-control-lg"
 
     def clean_cedula(self):
-        cedula = re.sub(r"[.\s-]", "", self.cleaned_data["cedula"])
-        if not cedula.isdigit() or not 5 <= len(cedula) <= 15:
-            raise forms.ValidationError("Escriba una cédula válida de 5 a 15 números.")
+        cedula = normalizar_cedula(self.cleaned_data["cedula"])
+        identidad = Candidato.objects.filter(cedula=cedula).first()
+        if self.instance.pk and identidad and self.instance.candidato_id != identidad.pk:
+            raise forms.ValidationError(
+                "Esta cédula pertenece a otra persona registrada y no puede combinarse con este historial."
+            )
         abierto = ProcesoSeleccion.objects.filter(
             cedula=cedula,
             activo=True,
@@ -48,11 +50,7 @@ class ProcesoForm(forms.ModelForm):
         return cedula
 
     def clean_celular(self):
-        celular = re.sub(r"[\s-]", "", self.cleaned_data["celular"])
-        numero = celular[1:] if celular.startswith("+") else celular
-        if not numero.isdigit() or not 7 <= len(numero) <= 15:
-            raise forms.ValidationError("Escriba un celular válido de 7 a 15 números.")
-        return celular
+        return normalizar_celular(self.cleaned_data["celular"])
 
     def clean_fecha_llegada(self):
         fecha = self.cleaned_data["fecha_llegada"]
@@ -80,6 +78,7 @@ class AccionProcesoForm(forms.Form):
     motivo = forms.CharField(
         label="Motivo obligatorio",
         min_length=5,
+        max_length=2000,
         widget=forms.Textarea(attrs={"class": "form-control form-control-lg", "rows": 3}),
     )
 
@@ -93,6 +92,7 @@ class DecisionForm(forms.Form):
     observacion = forms.CharField(
         label="Observación obligatoria",
         min_length=3,
+        max_length=2000,
         widget=forms.Textarea(attrs={
             "class": "form-control form-control-lg",
             "rows": 4,
