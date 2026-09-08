@@ -136,7 +136,7 @@ class FlujoProcesoTests(TestCase):
     def test_estilos_principales_tienen_version_para_evitar_cache_antigua(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:trazabilidad"))
-        self.assertContains(response, "css/app.css?v=20260809.3")
+        self.assertContains(response, "css/app.css?v=20260908.2")
 
     def test_trazabilidad_filtra_por_fecha_estado_nombre_y_vacante(self):
         otro = ProcesoSeleccion.objects.create(
@@ -357,7 +357,8 @@ class FlujoProcesoTests(TestCase):
         self.assertContains(response, "Saltar al contenido principal")
         self.assertContains(response, "data-theme-toggle")
         self.assertContains(response, 'autocomplete="current-password"')
-        self.assertContains(response, "Procesos de contratación")
+        self.assertContains(response, "Selección Serviciudad")
+        self.assertContains(response, 'img/serviciudad.jpg')
         self.assertNotContains(response, "Información clara")
 
     def test_usuario_autenticado_no_vuelve_a_ver_el_login(self):
@@ -594,15 +595,77 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(self.proceso.seguimientos.count(), 4)
         self.assertEqual(self.proceso.seguimientos.filter(fin__isnull=False).count(), 4)
 
-    def test_no_existe_ruta_para_eliminar_candidatos(self):
+    def test_gerencia_elimina_definitivamente_solo_despues_de_desactivar(self):
+        candidato_id = self.proceso.candidato_id
+        seguimiento_id = self.proceso.seguimientos.get().pk
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
-        response = self.client.get(f"/candidato/{self.proceso.pk}/eliminar/")
+        url_eliminar = reverse("procesos:proceso_eliminar", args=[self.proceso.pk])
+        response = self.client.get(url_eliminar)
         self.assertEqual(response.status_code, 404)
         self.client.post(
             reverse("procesos:proceso_actividad", args=[self.proceso.pk]),
-            {"motivo": "Conservar el historial del registro de prueba."},
+            {"motivo": "Registro solicitado para eliminación definitiva."},
         )
         self.assertTrue(ProcesoSeleccion.objects.filter(pk=self.proceso.pk, activo=False).exists())
+        self.assertTrue(CambioGerencia.objects.filter(proceso_id=self.proceso.pk).exists())
+
+        response = self.client.get(url_eliminar)
+        self.assertContains(response, "Eliminar candidato definitivamente")
+        self.assertContains(response, "Ana Pérez")
+        self.assertContains(response, "Talento Humano")
+        self.assertContains(response, "Esta acción no se puede deshacer")
+
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        self.assertEqual(self.client.post(url_eliminar, {"confirmar": "on"}).status_code, 403)
+
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.post(url_eliminar, {"confirmar": "on"}, follow=True)
+        self.assertRedirects(response, reverse("procesos:archivados"))
+        self.assertContains(response, "eliminados definitivamente")
+        self.assertFalse(ProcesoSeleccion.objects.filter(pk=self.proceso.pk).exists())
+        self.assertFalse(SeguimientoEtapa.objects.filter(pk=seguimiento_id).exists())
+        self.assertFalse(Candidato.objects.filter(pk=candidato_id).exists())
+        self.assertFalse(CambioGerencia.objects.filter(cedula="12345").exists())
+
+    def test_eliminar_exige_confirmacion_explicita(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        self.client.post(
+            reverse("procesos:proceso_actividad", args=[self.proceso.pk]),
+            {"motivo": "Preparar eliminación con confirmación."},
+        )
+        response = self.client.post(reverse("procesos:proceso_eliminar", args=[self.proceso.pk]), {})
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "Este campo es obligatorio")
+        self.assertTrue(ProcesoSeleccion.objects.filter(pk=self.proceso.pk).exists())
+
+    def test_eliminar_candidato_exige_desactivar_y_borra_todos_sus_procesos(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        self.client.post(
+            reverse("procesos:proceso_actividad", args=[self.proceso.pk]),
+            {"motivo": "Desactivar primera postulación para depuración."},
+        )
+        segundo = ProcesoSeleccion.objects.create(
+            nombre="Ana", apellidos="Pérez", cedula="12345", celular="3001234567",
+            fecha_llegada=date.today(), vacante="Tesorería",
+            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+        )
+        url_eliminar = reverse("procesos:proceso_eliminar", args=[self.proceso.pk])
+        response = self.client.get(url_eliminar)
+        self.assertContains(response, "Hay 1 proceso activo")
+        self.assertContains(response, "disabled")
+        response = self.client.post(url_eliminar, {"confirmar": "on"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ProcesoSeleccion.objects.filter(candidato_id=self.proceso.candidato_id).count(), 2)
+
+        self.client.post(
+            reverse("procesos:proceso_actividad", args=[segundo.pk]),
+            {"motivo": "Desactivar segunda postulación para depuración."},
+        )
+        response = self.client.post(url_eliminar, {"confirmar": "on"})
+        self.assertRedirects(response, reverse("procesos:archivados"))
+        self.assertFalse(Candidato.objects.filter(cedula="12345").exists())
+        self.assertFalse(ProcesoSeleccion.objects.filter(cedula="12345").exists())
+        self.assertFalse(CambioGerencia.objects.filter(cedula="12345").exists())
 
     def test_cada_area_solo_ve_sus_asignaciones(self):
         self.client.force_login(self.usuarios[Perfil.Rol.PSICOLOGIA])
@@ -731,7 +794,7 @@ class FlujoProcesoTests(TestCase):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:lista"), {"q": "' OR 1=1 --"})
         self.assertEqual(response.status_code, 200)
-        self.assertNotContains(response, "Ana Pérez")
+        self.assertContains(response, "No hay candidatos")
 
     def test_datos_del_candidato_se_escapan_contra_xss(self):
         self.proceso.nombre = "<script>alert(1)</script>"
@@ -829,6 +892,135 @@ class FlujoProcesoTests(TestCase):
             for url in urls:
                 with self.subTest(rol=rol, url=url):
                     self.assertEqual(self.client.get(url).status_code, 200)
+
+    def test_centro_notificaciones_muestra_nuevos_y_permite_marcar_leida(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        response = self.client.get(reverse("procesos:lista"))
+        seguimiento = self.proceso.seguimientos.get()
+        self.assertContains(response, "Nuevo proceso asignado")
+        self.assertContains(response, 'class="notification-badge">1</span>', html=False)
+
+        response = self.client.post(
+            reverse("procesos:notificacion_leida", args=[seguimiento.pk]),
+            {"next": reverse("procesos:lista")},
+            follow=True,
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "0 sin leer")
+        self.assertNotContains(response, 'class="notification-badge">1</span>', html=False)
+
+    def test_centro_notificaciones_avisa_proximo_vencimiento_y_vencido(self):
+        seguimiento = self.proceso.seguimientos.get()
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        seguimiento.fecha_limite = timezone.now() + timedelta(hours=2)
+        seguimiento.save(update_fields=["fecha_limite"])
+        response = self.client.get(reverse("procesos:lista"))
+        self.assertContains(response, "Proceso próximo a vencer")
+
+        seguimiento.fecha_limite = timezone.now() - timedelta(hours=2)
+        seguimiento.save(update_fields=["fecha_limite"])
+        response = self.client.get(reverse("procesos:lista"))
+        self.assertContains(response, "Proceso vencido")
+
+    def test_usuario_no_puede_marcar_notificacion_de_otro_rol(self):
+        seguimiento = self.proceso.seguimientos.get()
+        self.client.force_login(self.usuarios[Perfil.Rol.PSICOLOGIA])
+        response = self.client.post(reverse("procesos:notificacion_leida", args=[seguimiento.pk]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_indicadores_disponibles_para_gerencia_y_contratacion(self):
+        for rol in (Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION):
+            self.client.force_login(self.usuarios[rol])
+            response = self.client.get(reverse("procesos:indicadores"))
+            with self.subTest(rol=rol):
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, "Indicadores de selección")
+                self.assertContains(response, "Procesos iniciados")
+                self.assertContains(response, "Vacantes con más candidatos")
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        self.assertEqual(self.client.get(reverse("procesos:indicadores")).status_code, 403)
+
+    def test_indicadores_filtran_por_fecha_y_calculan_porcentajes(self):
+        anterior = ProcesoSeleccion.objects.create(
+            nombre="Luis", apellidos="Viejo", cedula="998877", celular="3009998877",
+            fecha_llegada=date(2025, 1, 5), vacante="Archivo",
+            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+        )
+        anterior.registrar_decision(
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa"
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:indicadores"), {
+            "fecha_desde": date.today().isoformat(), "fecha_hasta": date.today().isoformat(),
+        })
+        self.assertEqual(response.context["indicadores"]["total"], 1)
+        self.assertContains(response, "Ana Pérez")
+        self.assertNotContains(response, "Luis Viejo")
+
+        response = self.client.get(reverse("procesos:indicadores"))
+        self.assertEqual(response.context["indicadores"]["rechazados"], 1)
+        self.assertEqual(response.context["indicadores"]["porcentaje_rechazados"], 100)
+
+    def test_indicadores_calculan_promedio_y_mediana_por_etapa(self):
+        seguimiento = self.proceso.seguimientos.get()
+        seguimiento.inicio = timezone.make_aware(datetime(2026, 9, 8, 7, 0))
+        seguimiento.fin = timezone.make_aware(datetime(2026, 9, 8, 11, 0))
+        seguimiento.resultado = SeguimientoEtapa.Resultado.APROBADO
+        seguimiento.save(update_fields=["inicio", "fin", "resultado"])
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:indicadores"))
+        talento = response.context["indicadores"]["por_etapa"][0]
+        self.assertEqual(talento["promedio_horas"], 4.0)
+        self.assertEqual(talento["mediana_horas"], 4.0)
+
+    def test_exportaciones_excel_y_pdf_respetan_filtro(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        seguimiento = self.proceso.seguimientos.get()
+        seguimiento.fecha_limite = timezone.now() + timedelta(hours=2)
+        seguimiento.save(update_fields=["fecha_limite"])
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        parametros = {"fecha_desde": date.today().isoformat(), "fecha_hasta": date.today().isoformat()}
+        excel = self.client.get(reverse("procesos:exportar_indicadores", args=["xlsx"]), parametros)
+        self.assertEqual(excel.status_code, 200)
+        self.assertEqual(
+            excel["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        libro = load_workbook(BytesIO(excel.content), read_only=True, data_only=True)
+        self.assertEqual(libro.sheetnames, [
+            "Resumen", "Procesos", "Procesos por mes", "Tiempos por etapa", "Vacantes", "Próximos a vencer",
+        ])
+        self.assertEqual(libro["Procesos"]["B2"].value, "Ana Pérez")
+        self.assertEqual(libro["Próximos a vencer"]["A2"].value, "Ana Pérez")
+
+        pdf = self.client.get(reverse("procesos:exportar_indicadores", args=["pdf"]), parametros)
+        self.assertEqual(pdf.status_code, 200)
+        self.assertEqual(pdf["Content-Type"], "application/pdf")
+        self.assertTrue(pdf.content.startswith(b"%PDF"))
+
+    def test_exportacion_rechaza_rango_invalido(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:exportar_indicadores", args=["pdf"]), {
+            "fecha_desde": "2026-09-10", "fecha_hasta": "2026-09-01",
+        })
+        self.assertEqual(response.status_code, 400)
+
+    def test_acciones_importantes_incluyen_confirmacion_contextual(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        response = self.client.get(reverse("procesos:detalle", args=[self.proceso.pk]))
+        self.assertContains(response, 'data-confirm-mode="reject-only"', html=False)
+        self.assertContains(response, 'data-confirm-subject="Ana Pérez"', html=False)
+        self.assertContains(response, 'data-confirm-stage="Talento Humano"', html=False)
+
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:proceso_actividad", args=[self.proceso.pk]))
+        self.assertContains(response, 'data-confirm-title="Confirmar desactivación"', html=False)
+        response = self.client.get(reverse(
+            "procesos:usuario_editar", args=[self.usuarios[Perfil.Rol.RRHH].pk]
+        ))
+        self.assertContains(response, 'data-confirm-subject="rrhh"', html=False)
 
 
 class ConfiguracionSeguridadTests(TestCase):

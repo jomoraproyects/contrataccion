@@ -5,11 +5,13 @@ from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, connection, transaction
 from django.db.models import Count, Prefetch, Q
-from django.http import JsonResponse
+from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
-from django.views.decorators.http import require_GET
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.views.decorators.http import require_GET, require_POST
 
 from .forms import (
     AccionProcesoForm,
@@ -17,12 +19,16 @@ from .forms import (
     DecisionForm,
     EditarProcesoGerenciaForm,
     EditarUsuarioOperativoForm,
+    EliminarProcesoForm,
+    IndicadoresFiltroForm,
     ProcesoForm,
     TrazabilidadFiltroForm,
     UsuarioOperativoForm,
 )
 from .calendario import segundos_habiles_entre, sumar_segundos_habiles
 from .models import Candidato, CambioGerencia, EventoSeguridad, Perfil, ProcesoSeleccion, SeguimientoEtapa
+from .notificaciones import seguimientos_notificables
+from .reportes import calcular_indicadores, exportar_excel, exportar_pdf, filtrar_procesos_por_fecha
 from .security import registrar_evento
 from .validacion import normalizar_cedula
 
@@ -148,6 +154,37 @@ def _contexto_lista(request, queryset, titulo, descripcion):
         "etapas": ProcesoSeleccion.Etapa.choices,
         "puede_crear": _rol(request.user) == Perfil.Rol.CONTRATACION,
     }
+
+
+def _procesos_indicadores(request, formulario):
+    base = _procesos_visibles(
+        request.user,
+        ProcesoSeleccion.objects.filter(activo=True).select_related("creado_por").prefetch_related("seguimientos"),
+    )
+    return filtrar_procesos_por_fecha(base, formulario).order_by("-fecha_llegada", "-creado_en")
+
+
+def _rango_indicadores(formulario):
+    desde = formulario.cleaned_data.get("fecha_desde")
+    hasta = formulario.cleaned_data.get("fecha_hasta")
+    if desde and hasta:
+        return f"{desde.strftime('%d/%m/%Y')} a {hasta.strftime('%d/%m/%Y')}"
+    if desde:
+        return f"Desde {desde.strftime('%d/%m/%Y')}"
+    if hasta:
+        return f"Hasta {hasta.strftime('%d/%m/%Y')}"
+    return "Todos los registros disponibles"
+
+
+def _destino_post_seguro(request):
+    destino = request.POST.get("next", "")
+    if destino and url_has_allowed_host_and_scheme(
+        destino,
+        allowed_hosts={request.get_host()},
+        require_https=request.is_secure(),
+    ):
+        return destino
+    return reverse("procesos:lista")
 
 
 @require_GET
@@ -358,6 +395,67 @@ def trazabilidad(request):
 
 
 @login_required
+def indicadores(request):
+    _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
+    formulario = IndicadoresFiltroForm(request.GET)
+    procesos = list(_procesos_indicadores(request, formulario)) if formulario.is_valid() else []
+    resumen = calcular_indicadores(procesos)
+    parametros = request.GET.copy()
+    parametros.pop("page", None)
+    return render(request, "procesos/indicadores.html", {
+        "formulario_filtros": formulario,
+        "procesos": procesos[:20],
+        "indicadores": resumen,
+        "rango": _rango_indicadores(formulario) if formulario.is_valid() else "Rango inválido",
+        "querystring": parametros.urlencode(),
+        "hay_filtros": bool(request.GET.get("fecha_desde") or request.GET.get("fecha_hasta")),
+    })
+
+
+@login_required
+@require_GET
+def exportar_indicadores(request, formato):
+    _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
+    if formato not in {"xlsx", "pdf"}:
+        return HttpResponseBadRequest("Formato de exportación no válido.")
+    formulario = IndicadoresFiltroForm(request.GET)
+    if not formulario.is_valid():
+        return HttpResponseBadRequest("El rango de fechas no es válido.")
+    procesos = list(_procesos_indicadores(request, formulario))
+    resumen = calcular_indicadores(procesos)
+    rango = _rango_indicadores(formulario)
+    fecha = timezone.localdate().isoformat()
+    if formato == "xlsx":
+        contenido = exportar_excel(procesos, resumen, rango)
+        tipo = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    else:
+        contenido = exportar_pdf(procesos, resumen, rango)
+        tipo = "application/pdf"
+    respuesta = HttpResponse(contenido, content_type=tipo)
+    respuesta["Content-Disposition"] = f'attachment; filename="indicadores-seleccion-{fecha}.{formato}"'
+    respuesta["Cache-Control"] = "private, no-store"
+    return respuesta
+
+
+@login_required
+@require_POST
+def marcar_notificacion_leida(request, pk):
+    get_object_or_404(seguimientos_notificables(request.user), pk=pk)
+    leidas = list(dict.fromkeys(request.session.get("notificaciones_leidas", []) + [pk]))[-200:]
+    request.session["notificaciones_leidas"] = leidas
+    return redirect(_destino_post_seguro(request))
+
+
+@login_required
+@require_POST
+def marcar_notificaciones_leidas(request):
+    ids = list(seguimientos_notificables(request.user).values_list("pk", flat=True)[:200])
+    anteriores = request.session.get("notificaciones_leidas", [])
+    request.session["notificaciones_leidas"] = list(dict.fromkeys(anteriores + ids))[-200:]
+    return redirect(_destino_post_seguro(request))
+
+
+@login_required
 def lista_contratacion(request):
     _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
     qs = _procesos_visibles(request.user, ProcesoSeleccion.objects.filter(activo=True)).filter(
@@ -537,6 +635,47 @@ def cambiar_actividad_proceso(request, pk):
 
 
 @login_required
+def eliminar_proceso_gerencia(request, pk):
+    _exigir_gerente(request)
+    proceso = get_object_or_404(
+        ProcesoSeleccion.objects.select_related("candidato"),
+        pk=pk,
+        activo=False,
+    )
+    form = EliminarProcesoForm(request.POST if request.method == "POST" else None)
+    otros_procesos_activos = proceso.candidato.procesos.filter(activo=True).count()
+    if request.method == "POST" and form.is_valid():
+        candidato = proceso.candidato
+        cedula = candidato.cedula
+        with transaction.atomic():
+            procesos_candidato = ProcesoSeleccion.objects.select_for_update().filter(candidato=candidato)
+            if procesos_candidato.filter(activo=True).exists():
+                form.add_error(
+                    None,
+                    "No se puede eliminar todavía: la persona tiene otro proceso activo. Desactívelo primero.",
+                )
+            else:
+                ids_procesos = list(procesos_candidato.values_list("pk", flat=True))
+                CambioGerencia.objects.filter(Q(proceso_id__in=ids_procesos) | Q(cedula=cedula)).delete()
+                procesos_candidato.delete()
+                candidato.delete()
+        if not form.errors:
+            messages.success(request, "El candidato y todo su historial fueron eliminados definitivamente.")
+            return redirect("procesos:archivados")
+        otros_procesos_activos = candidato.procesos.filter(activo=True).count()
+    return render(request, "procesos/proceso_confirmar.html", {
+        "form": form,
+        "proceso": proceso,
+        "accion": "eliminar",
+        "titulo": "Eliminar candidato definitivamente",
+        "descripcion": "Esta acción borra la información personal, todos sus procesos, decisiones y trazabilidad.",
+        "texto_boton": "Eliminar definitivamente",
+        "peligrosa": True,
+        "otros_procesos_activos": otros_procesos_activos,
+    })
+
+
+@login_required
 def lista_usuarios(request):
     _exigir_gerente(request)
     usuarios = User.objects.select_related("perfil").exclude(
@@ -599,6 +738,8 @@ def cambiar_password_usuario(request, pk):
         "titulo": "Cambiar contraseña",
         "descripcion": f"Establezca una contraseña nueva para {usuario.get_full_name() or usuario.username}.",
         "texto_boton": "Guardar nueva contraseña",
+        "confirmar_accion": True,
+        "confirmacion_mensaje": "Se reemplazará la contraseña de esta cuenta.",
     })
 
 
@@ -629,4 +770,6 @@ def editar_usuario(request, pk):
         "titulo": "Editar usuario",
         "descripcion": "Actualice sus datos o cambie el área. Gerencia y Contratación no pueden bloquearse manualmente.",
         "texto_boton": "Guardar cambios",
+        "confirmar_accion": True,
+        "confirmacion_mensaje": "Se modificarán los datos, el rol o el acceso de esta cuenta.",
     })

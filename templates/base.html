@@ -9,7 +9,7 @@
   <title>{% block title %}Procesos de contratación{% endblock %}</title>
   <script src="{% static 'js/theme-init.js' %}"></script>
   <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260809.3">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20260908.2">
 </head>
 <body>
 <a class="skip-link" href="#contenido-principal">Saltar al contenido principal</a>
@@ -26,10 +26,20 @@
         {% if rol_usuario == 'GERENTE' %}<a class="nav-link {% if request.resolver_match.url_name == 'usuarios' or request.resolver_match.url_name == 'usuario_crear' or request.resolver_match.url_name == 'usuario_editar' or request.resolver_match.url_name == 'usuario_password' %}active{% endif %}" {% if request.resolver_match.url_name == 'usuarios' or request.resolver_match.url_name == 'usuario_crear' or request.resolver_match.url_name == 'usuario_editar' or request.resolver_match.url_name == 'usuario_password' %}aria-current="page"{% endif %} href="{% url 'procesos:usuarios' %}">Equipo</a>{% endif %}
         {% if rol_usuario == 'GERENTE' %}<a class="nav-link {% if request.resolver_match.url_name == 'archivados' %}active{% endif %}" {% if request.resolver_match.url_name == 'archivados' %}aria-current="page"{% endif %} href="{% url 'procesos:archivados' %}">Desactivados</a>{% endif %}
         {% if rol_usuario == 'GERENTE' %}<a class="nav-link {% if request.resolver_match.url_name == 'trazabilidad' %}active{% endif %}" {% if request.resolver_match.url_name == 'trazabilidad' %}aria-current="page"{% endif %} href="{% url 'procesos:trazabilidad' %}">Trazabilidad</a>{% endif %}
+        {% if rol_usuario == 'GERENTE' or rol_usuario == 'CONTRATACION' %}<a class="nav-link {% if request.resolver_match.url_name == 'indicadores' %}active{% endif %}" {% if request.resolver_match.url_name == 'indicadores' %}aria-current="page"{% endif %} href="{% url 'procesos:indicadores' %}">Indicadores</a>{% endif %}
         {% if rol_usuario == 'GERENTE' %}<a class="nav-link {% if request.resolver_match.url_name == 'auditoria_seguridad' %}active{% endif %}" {% if request.resolver_match.url_name == 'auditoria_seguridad' %}aria-current="page"{% endif %} href="{% url 'procesos:auditoria_seguridad' %}">Auditoría</a>{% endif %}
       </div>
       <div class="d-flex align-items-center gap-2 text-white mt-3 mt-lg-0">
         <div class="user-summary me-2"><strong>{{ user.get_full_name|default:user.username }}</strong>{% if rol_usuario_nombre %}<small>{{ rol_usuario_nombre }}</small>{% endif %}</div>
+        <div class="dropdown">
+          <button class="btn btn-notifications btn-lg position-relative" type="button" data-bs-toggle="dropdown" aria-expanded="false" aria-label="Notificaciones{% if notificaciones_sin_leer %}: {{ notificaciones_sin_leer }} sin leer{% endif %}">
+            <span aria-hidden="true">🔔</span>{% if notificaciones_sin_leer %}<span class="notification-badge">{{ notificaciones_sin_leer }}</span>{% endif %}
+          </button>
+          <div class="dropdown-menu dropdown-menu-end notification-menu p-0">
+            <div class="notification-header"><div><strong>Notificaciones</strong><small>{{ notificaciones_sin_leer }} sin leer</small></div>{% if notificaciones_sin_leer %}<form method="post" action="{% url 'procesos:notificaciones_leidas' %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn btn-link btn-sm" type="submit">Marcar todas</button></form>{% endif %}</div>
+            <div class="notification-list">{% for notificacion in notificaciones %}<article class="notification-item {% if notificacion.leida %}is-read{% endif %}"><a href="{{ notificacion.url }}"><span class="notification-dot notification-{{ notificacion.tipo }}" aria-hidden="true"></span><span><strong>{{ notificacion.titulo }}</strong><small>{{ notificacion.candidato }} · {{ notificacion.etapa }}</small><small>{{ notificacion.vacante }} · {{ notificacion.estado_plazo }}</small></span></a>{% if not notificacion.leida %}<form method="post" action="{% url 'procesos:notificacion_leida' notificacion.id %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn btn-sm btn-outline-secondary" type="submit">Marcar leída</button></form>{% endif %}</article>{% empty %}<div class="notification-empty"><span aria-hidden="true">✓</span><p>No tiene avisos pendientes.</p></div>{% endfor %}</div>
+          </div>
+        </div>
         <button class="btn btn-theme btn-lg" type="button" data-theme-toggle aria-label="Activar modo oscuro" title="Cambiar tema"><span aria-hidden="true" data-theme-icon>◐</span></button>
         <form method="post" action="{% url 'logout' %}">{% csrf_token %}<button class="btn btn-light btn-lg" type="submit">Salir</button></form>
       </div>
@@ -43,7 +53,10 @@
   {% elif rol_usuario == 'GERENTE' and procesos_vencidos_gerencia or rol_usuario == 'GERENTE' and procesos_por_vencer_gerencia %}<aside class="global-work-alert alert {% if procesos_vencidos_gerencia %}alert-danger{% else %}alert-warning{% endif %}" role="alert"><div class="global-work-icon" aria-hidden="true">!</div><div class="flex-grow-1"><h2 class="h4 fw-bold mb-1">Alerta de tiempos para Gerencia</h2><p class="mb-0"><strong>{{ procesos_vencidos_gerencia }}</strong> etapa{{ procesos_vencidos_gerencia|pluralize }} vencida{{ procesos_vencidos_gerencia|pluralize }} y <strong>{{ procesos_por_vencer_gerencia }}</strong> próxima{{ procesos_por_vencer_gerencia|pluralize }} a vencer.</p></div><a class="btn btn-dark btn-lg align-self-center" href="{% url 'procesos:trazabilidad' %}">Revisar trazabilidad</a></aside>{% endif %}
   {% block content %}{% endblock %}
 </main>
+<div class="modal fade" id="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalTitle" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered"><div class="modal-content"><div class="modal-header"><h2 class="modal-title h4 fw-bold" id="confirmationModalTitle">Confirmar acción</h2><button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Cerrar"></button></div><div class="modal-body"><p class="fs-5" data-confirm-message></p><dl class="confirmation-details mb-0"><div><dt>Persona o candidato</dt><dd data-confirm-subject></dd></div><div><dt>Etapa o rol</dt><dd data-confirm-stage></dd></div></dl></div><div class="modal-footer"><button type="button" class="btn btn-outline-secondary btn-lg" data-bs-dismiss="modal">Cancelar</button><button type="button" class="btn btn-danger btn-lg" data-confirm-submit>Confirmar</button></div></div></div>
+</div>
 <script src="{% static 'vendor/bootstrap/bootstrap.bundle.min.js' %}"></script>
-<script src="{% static 'js/app.js' %}?v=20260810.1"></script>
+<script src="{% static 'js/app.js' %}?v=20260908.1"></script>
 </body>
 </html>

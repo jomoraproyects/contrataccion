@@ -5,6 +5,8 @@ def user_role(request):
     alerta_asignacion = None
     procesos_vencidos_gerencia = 0
     procesos_por_vencer_gerencia = 0
+    notificaciones = []
+    notificaciones_sin_leer = 0
     if rol in ("RRHH", "PSICOLOGIA", "SEGURIDAD", "CONTRATACION"):
         from .models import ProcesoSeleccion, SeguimientoEtapa
         asignaciones = SeguimientoEtapa.objects.filter(
@@ -25,6 +27,13 @@ def user_role(request):
             not item.esta_vencido and item.dias_restantes <= 1
             for item in abiertos.select_related("proceso")
         )
+    if perfil:
+        from .notificaciones import construir_notificaciones
+        leidas = set(request.session.get("notificaciones_leidas", []))
+        notificaciones = construir_notificaciones(request.user)
+        for notificacion in notificaciones:
+            notificacion["leida"] = notificacion["id"] in leidas
+        notificaciones_sin_leer = sum(not item["leida"] for item in notificaciones)
     return {
         "rol_usuario": rol,
         "rol_usuario_nombre": perfil.get_rol_display() if perfil else None,
@@ -32,4 +41,6 @@ def user_role(request):
         "alerta_asignacion": alerta_asignacion,
         "procesos_vencidos_gerencia": procesos_vencidos_gerencia,
         "procesos_por_vencer_gerencia": procesos_por_vencer_gerencia,
+        "notificaciones": notificaciones,
+        "notificaciones_sin_leer": notificaciones_sin_leer,
     }

@@ -83,6 +83,14 @@ class AccionProcesoForm(forms.Form):
     )
 
 
+class EliminarProcesoForm(forms.Form):
+    confirmar = forms.BooleanField(
+        label="Entiendo que el candidato y todo su historial de selección se eliminarán definitivamente",
+        required=True,
+        widget=forms.CheckboxInput(attrs={"class": "form-check-input"}),
+    )
+
+
 class DecisionForm(forms.Form):
     resultado = forms.ChoiceField(
         choices=Decision.Resultado.choices,
@@ -151,6 +159,31 @@ class TrazabilidadFiltroForm(forms.Form):
                 if isinstance(field.widget, forms.Select)
                 else "form-control form-control-lg"
             )
+
+    def clean(self):
+        datos = super().clean()
+        desde, hasta = datos.get("fecha_desde"), datos.get("fecha_hasta")
+        if desde and hasta and desde > hasta:
+            raise forms.ValidationError("La fecha inicial no puede ser posterior a la fecha final.")
+        return datos
+
+
+class IndicadoresFiltroForm(forms.Form):
+    fecha_desde = forms.DateField(
+        label="Procesos recibidos desde",
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+    fecha_hasta = forms.DateField(
+        label="Procesos recibidos hasta",
+        required=False,
+        widget=forms.DateInput(attrs={"type": "date"}),
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        for field in self.fields.values():
+            field.widget.attrs["class"] = "form-control form-control-lg"
 
     def clean(self):
         datos = super().clean()

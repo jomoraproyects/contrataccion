@@ -1,13 +1,14 @@
 {% extends "base.html" %}
-{% block title %}Ingresar | Procesos de contratación{% endblock %}
+{% load static %}
+{% block title %}Ingresar | Selección Serviciudad{% endblock %}
 {% block content %}
 <button class="btn btn-theme login-theme-toggle btn-lg" type="button" data-theme-toggle aria-label="Activar modo oscuro" title="Cambiar tema"><span aria-hidden="true" data-theme-icon>◐</span></button>
 <div class="login-wrapper d-flex align-items-center justify-content-center py-4">
   <section class="login-card-simple card border-0" aria-labelledby="titulo-login">
-    <div class="login-brand" aria-hidden="true">PC</div>
+    <div class="login-brand"><img src="{% static 'img/serviciudad.jpg' %}" alt="Serviciudad" width="84" height="84"></div>
     <div class="text-center mb-4">
       <p class="eyebrow text-primary mb-2">Acceso seguro</p>
-      <h1 id="titulo-login" class="login-title">Procesos de contratación</h1>
+      <h1 id="titulo-login" class="login-title">Selección Serviciudad</h1>
       <p class="fs-5 text-body-secondary mb-0">Ingrese con su usuario y contraseña.</p>
     </div>
 

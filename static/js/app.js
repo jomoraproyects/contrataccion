@@ -40,8 +40,49 @@
     });
   });
 
+  const modalConfirmacionElemento = document.getElementById("confirmationModal");
+  const modalConfirmacion = modalConfirmacionElemento && window.bootstrap
+    ? new bootstrap.Modal(modalConfirmacionElemento)
+    : null;
+  let formularioPorConfirmar = null;
+
+  document.querySelectorAll("form[data-confirm-action]").forEach((formulario) => {
+    formulario.addEventListener("submit", function (evento) {
+      if (formulario.dataset.confirmed === "true" || !modalConfirmacion) return;
+      if (formulario.dataset.confirmMode === "reject-only") {
+        const resultado = formulario.querySelector('input[name="resultado"]:checked');
+        if (!resultado || resultado.value !== "RECHAZADO") return;
+      }
+      evento.preventDefault();
+      formularioPorConfirmar = formulario;
+      modalConfirmacionElemento.querySelector("#confirmationModalTitle").textContent = formulario.dataset.confirmTitle || "Confirmar acción";
+      modalConfirmacionElemento.querySelector("[data-confirm-message]").textContent = formulario.dataset.confirmMessage || "Revise la información antes de continuar.";
+      modalConfirmacionElemento.querySelector("[data-confirm-subject]").textContent = formulario.dataset.confirmSubject || "—";
+      modalConfirmacionElemento.querySelector("[data-confirm-stage]").textContent = formulario.dataset.confirmStage || "—";
+      modalConfirmacion.show();
+    });
+  });
+
+  const botonConfirmar = modalConfirmacionElemento && modalConfirmacionElemento.querySelector("[data-confirm-submit]");
+  if (botonConfirmar) {
+    botonConfirmar.addEventListener("click", function () {
+      if (!formularioPorConfirmar) return;
+      const formulario = formularioPorConfirmar;
+      formularioPorConfirmar = null;
+      formulario.dataset.confirmed = "true";
+      modalConfirmacion.hide();
+      formulario.requestSubmit();
+    });
+  }
+  if (modalConfirmacionElemento) {
+    modalConfirmacionElemento.addEventListener("hidden.bs.modal", function () {
+      formularioPorConfirmar = null;
+    });
+  }
+
   document.querySelectorAll("form[data-submit-once]").forEach((formulario) => {
-    formulario.addEventListener("submit", function () {
+    formulario.addEventListener("submit", function (evento) {
+      if (evento.defaultPrevented) return;
       const boton = formulario.querySelector('button[type="submit"]');
       if (!boton) return;
       window.setTimeout(function () {
