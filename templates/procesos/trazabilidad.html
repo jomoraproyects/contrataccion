@@ -1,10 +1,14 @@
 {% extends "base.html" %}
 {% block title %}Trazabilidad de procesos{% endblock %}
 {% block content %}
-<header class="mb-4">
-  <p class="eyebrow text-primary mb-1">Control de Gerencia</p>
+<header class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-start gap-3 mb-4">
+  <div><p class="eyebrow text-primary mb-1">Control de Gerencia</p>
   <h1 class="display-6 fw-bold mb-1">Trazabilidad de procesos</h1>
-  <p class="fs-5 text-body-secondary mb-0">Consulte dónde está cada candidato, cuánto ha tardado y qué etapas concentran las mayores demoras.</p>
+  <p class="fs-5 text-body-secondary mb-0">Consulte dónde está cada candidato, cuánto ha tardado y qué etapas concentran las mayores demoras.</p></div>
+  <div class="d-flex flex-wrap gap-2">
+    <a class="btn btn-success btn-lg" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}exportar=xlsx">Exportar Excel</a>
+    <a class="btn btn-danger btn-lg" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}exportar=pdf">Exportar PDF</a>
+  </div>
 </header>
 
 <details class="card trace-filters border-0 mb-4" open>

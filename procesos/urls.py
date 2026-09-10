@@ -21,7 +21,6 @@ urlpatterns = [
     path("candidato/<int:pk>/actividad/", views.cambiar_actividad_proceso, name="proceso_actividad"),
     path("candidato/<int:pk>/eliminar/", views.eliminar_proceso_gerencia, name="proceso_eliminar"),
     path("usuarios/", views.lista_usuarios, name="usuarios"),
-    path("auditoria-seguridad/", views.auditoria_seguridad, name="auditoria_seguridad"),
     path("usuarios/nuevo/", views.crear_usuario, name="usuario_crear"),
     path("usuarios/<int:pk>/editar/", views.editar_usuario, name="usuario_editar"),
     path("usuarios/<int:pk>/password/", views.cambiar_password_usuario, name="usuario_password"),

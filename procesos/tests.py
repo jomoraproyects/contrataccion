@@ -475,9 +475,11 @@ class FlujoProcesoTests(TestCase):
             )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:lista"), {"vacante": "Ventas"})
-        self.assertEqual(len(response.context["procesos"]), 20)
+        self.assertEqual(len(response.context["procesos"]), 10)
         self.assertContains(response, "vacante=Ventas&amp;page=2")
         response = self.client.get(reverse("procesos:lista"), {"vacante": "Ventas", "page": 2})
+        self.assertEqual(len(response.context["procesos"]), 10)
+        response = self.client.get(reverse("procesos:lista"), {"vacante": "Ventas", "page": 3})
         self.assertEqual(len(response.context["procesos"]), 5)
 
     def test_usuario_operativo_no_puede_gestionar_cuentas(self):
@@ -815,15 +817,12 @@ class FlujoProcesoTests(TestCase):
         self.client.post(reverse("login"), {"username": "rrhh", "password": "prueba-segura"})
         self.assertTrue(EventoSeguridad.objects.filter(tipo=EventoSeguridad.Tipo.LOGIN_CORRECTO).exists())
 
-    def test_solo_gerencia_consulta_auditoria_de_seguridad(self):
+    def test_auditoria_se_conserva_internamente_sin_exponer_una_pantalla(self):
         EventoSeguridad.objects.create(tipo=EventoSeguridad.Tipo.LOGIN_FALLIDO, detalle="Prueba")
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
-        response = self.client.get(reverse("procesos:auditoria_seguridad"))
-        self.assertContains(response, "Auditoría de seguridad")
-        self.assertContains(response, "Inicio de sesión fallido")
-        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
-        self.assertEqual(self.client.get(reverse("procesos:auditoria_seguridad")).status_code, 403)
-        self.assertTrue(EventoSeguridad.objects.filter(tipo=EventoSeguridad.Tipo.ACCESO_DENEGADO).exists())
+        response = self.client.get("/auditoria-seguridad/")
+        self.assertEqual(response.status_code, 404)
+        self.assertTrue(EventoSeguridad.objects.filter(tipo=EventoSeguridad.Tipo.LOGIN_FALLIDO).exists())
 
     @override_settings(DEBUG=False)
     def test_404_de_produccion_no_expone_rutas_internas(self):
@@ -862,7 +861,6 @@ class FlujoProcesoTests(TestCase):
             reverse("procesos:archivados"),
             reverse("procesos:trazabilidad"),
             reverse("procesos:usuarios"),
-            reverse("procesos:auditoria_seguridad"),
             reverse("procesos:detalle", args=[self.proceso.pk]),
             reverse("procesos:proceso_editar", args=[self.proceso.pk]),
             reverse("procesos:proceso_actividad", args=[self.proceso.pk]),
@@ -961,6 +959,28 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(response.context["indicadores"]["rechazados"], 1)
         self.assertEqual(response.context["indicadores"]["porcentaje_rechazados"], 100)
 
+    def test_indicadores_filtran_por_estado_etapa_y_vacante(self):
+        otro = ProcesoSeleccion.objects.create(
+            nombre="Luis", apellidos="Ventas", cedula="998811", celular="3009998811",
+            fecha_llegada=date.today(), vacante="Ventas",
+            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+        )
+        otro.registrar_decision(
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa"
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:indicadores"), {
+            "estado": ProcesoSeleccion.Estado.EN_CURSO,
+            "etapa": ProcesoSeleccion.Etapa.RRHH,
+            "vacante": "Contab",
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.context["indicadores"]["total"], 1)
+        self.assertContains(response, "Ana Pérez")
+        self.assertNotContains(response, "Luis Ventas")
+        self.assertContains(response, "Estado: En curso")
+        self.assertContains(response, "Área/etapa: Talento Humano")
+
     def test_indicadores_calculan_promedio_y_mediana_por_etapa(self):
         seguimiento = self.proceso.seguimientos.get()
         seguimiento.inicio = timezone.make_aware(datetime(2026, 9, 8, 7, 0))
@@ -999,6 +1019,54 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(pdf.status_code, 200)
         self.assertEqual(pdf["Content-Type"], "application/pdf")
         self.assertTrue(pdf.content.startswith(b"%PDF"))
+
+    def test_trazabilidad_exporta_excel_y_pdf_con_los_filtros(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        parametros = {
+            "fecha_desde": date.today().isoformat(),
+            "estado": ProcesoSeleccion.Estado.EN_CURSO,
+            "etapa": ProcesoSeleccion.Etapa.RRHH,
+            "vacante": "Contab",
+        }
+        excel = self.client.get(reverse("procesos:trazabilidad"), {**parametros, "exportar": "xlsx"})
+        self.assertEqual(excel.status_code, 200)
+        self.assertEqual(
+            excel["Content-Type"],
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+        libro = load_workbook(BytesIO(excel.content), read_only=True, data_only=True)
+        self.assertEqual(libro.sheetnames, ["Resumen", "Candidatos", "Detalle por etapa", "Resumen por área"])
+        self.assertEqual(libro["Candidatos"]["B2"].value, "Ana Pérez")
+        self.assertIn("Estado: En curso", libro["Resumen"]["B2"].value)
+
+        pdf = self.client.get(reverse("procesos:trazabilidad"), {**parametros, "exportar": "pdf"})
+        self.assertEqual(pdf.status_code, 200)
+        self.assertEqual(pdf["Content-Type"], "application/pdf")
+        self.assertTrue(pdf.content.startswith(b"%PDF"))
+
+    def test_error_de_exportacion_regresa_al_informe_sin_mostrar_pagina_500(self):
+        from unittest.mock import patch
+
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        with patch("procesos.views.exportar_excel", side_effect=RuntimeError("dependencia ausente")):
+            response = self.client.get(
+                reverse("procesos:exportar_indicadores", args=["xlsx"]),
+                {"vacante": "Contabilidad"},
+            )
+        self.assertEqual(response.status_code, 302)
+        self.assertIn("/indicadores/?vacante=Contabilidad", response["Location"])
+
+    def test_equipo_muestra_plazos_habiles_por_rol(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:usuarios"))
+        self.assertContains(response, "Plazo de gestión")
+        self.assertContains(response, "2 días hábiles")
+        self.assertContains(response, "3 días hábiles")
+        self.assertContains(response, "6 días hábiles")
+        self.assertContains(response, "Supervisión")
 
     def test_exportacion_rechaza_rango_invalido(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])

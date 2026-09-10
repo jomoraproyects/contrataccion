@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.contrib.auth.models import User
@@ -26,11 +28,29 @@ from .forms import (
     UsuarioOperativoForm,
 )
 from .calendario import segundos_habiles_entre, sumar_segundos_habiles
-from .models import Candidato, CambioGerencia, EventoSeguridad, Perfil, ProcesoSeleccion, SeguimientoEtapa
+from .models import (
+    PLAZOS_ETAPA_DIAS,
+    Candidato,
+    CambioGerencia,
+    EventoSeguridad,
+    Perfil,
+    ProcesoSeleccion,
+    SeguimientoEtapa,
+)
 from .notificaciones import seguimientos_notificables
-from .reportes import calcular_indicadores, exportar_excel, exportar_pdf, filtrar_procesos_por_fecha
+from .reportes import (
+    calcular_indicadores,
+    exportar_excel,
+    exportar_pdf,
+    exportar_trazabilidad_excel,
+    exportar_trazabilidad_pdf,
+    filtrar_procesos_por_fecha,
+)
 from .security import registrar_evento
 from .validacion import normalizar_cedula
+
+
+logger = logging.getLogger(__name__)
 
 
 def _rol(usuario):
@@ -141,7 +161,7 @@ def _filtrar(request, queryset):
 
 def _contexto_lista(request, queryset, titulo, descripcion):
     filtrados = _filtrar(request, queryset)
-    pagina = Paginator(filtrados, 20).get_page(request.GET.get("page"))
+    pagina = Paginator(filtrados, 10).get_page(request.GET.get("page"))
     parametros = request.GET.copy()
     parametros.pop("page", None)
     return {
@@ -167,13 +187,53 @@ def _procesos_indicadores(request, formulario):
 def _rango_indicadores(formulario):
     desde = formulario.cleaned_data.get("fecha_desde")
     hasta = formulario.cleaned_data.get("fecha_hasta")
+    partes = []
     if desde and hasta:
-        return f"{desde.strftime('%d/%m/%Y')} a {hasta.strftime('%d/%m/%Y')}"
-    if desde:
-        return f"Desde {desde.strftime('%d/%m/%Y')}"
-    if hasta:
-        return f"Hasta {hasta.strftime('%d/%m/%Y')}"
-    return "Todos los registros disponibles"
+        partes.append(f"Fecha: {desde.strftime('%d/%m/%Y')} a {hasta.strftime('%d/%m/%Y')}")
+    elif desde:
+        partes.append(f"Fecha: desde {desde.strftime('%d/%m/%Y')}")
+    elif hasta:
+        partes.append(f"Fecha: hasta {hasta.strftime('%d/%m/%Y')}")
+    estado = formulario.cleaned_data.get("estado")
+    etapa = formulario.cleaned_data.get("etapa")
+    vacante = formulario.cleaned_data.get("vacante", "").strip()
+    q = formulario.cleaned_data.get("q", "").strip()
+    situacion = formulario.cleaned_data.get("situacion")
+    if estado:
+        partes.append(f"Estado: {dict(ProcesoSeleccion.Estado.choices).get(estado, estado)}")
+    if etapa:
+        partes.append(f"Área/etapa: {dict(ProcesoSeleccion.Etapa.choices).get(etapa, etapa)}")
+    if vacante:
+        partes.append(f"Vacante/área: {vacante}")
+    if q:
+        partes.append(f"Búsqueda: {q}")
+    if situacion:
+        partes.append(f"Cumplimiento: {dict(TrazabilidadFiltroForm.SITUACIONES).get(situacion, situacion)}")
+    return " · ".join(partes) if partes else "Todos los registros disponibles"
+
+
+def _respuesta_exportacion(request, formato, generador_excel, generador_pdf, nombre, volver_a):
+    try:
+        if formato == "xlsx":
+            contenido = generador_excel()
+            tipo = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        elif formato == "pdf":
+            contenido = generador_pdf()
+            tipo = "application/pdf"
+        else:
+            return HttpResponseBadRequest("Formato de exportación no válido.")
+    except Exception:
+        logger.exception("No fue posible generar la exportación %s", nombre)
+        messages.error(
+            request,
+            "No fue posible generar el archivo. Verifique que las dependencias del servidor estén actualizadas.",
+        )
+        return redirect(volver_a)
+    fecha = timezone.localdate().isoformat()
+    respuesta = HttpResponse(contenido, content_type=tipo)
+    respuesta["Content-Disposition"] = f'attachment; filename="{nombre}-{fecha}.{formato}"'
+    respuesta["Cache-Control"] = "private, no-store"
+    return respuesta
 
 
 def _destino_post_seguro(request):
@@ -259,7 +319,7 @@ def lista_procesos(request):
                 activo=True,
                 estado__in=[ProcesoSeleccion.Estado.RECHAZADO, ProcesoSeleccion.Estado.CONTRATADO],
             ),
-        ).order_by("-actualizado_en")[:20]
+        ).order_by("-actualizado_en")[:10]
     return render(request, "procesos/lista.html", contexto)
 
 
@@ -373,17 +433,41 @@ def trazabilidad(request):
     if cuello_botella:
         cuello_botella["es_cuello_botella"] = True
 
-    pagina = Paginator(procesos, 20).get_page(request.GET.get("page"))
     parametros = request.GET.copy()
     parametros.pop("page", None)
+    parametros.pop("exportar", None)
+    resumen_trazabilidad = {
+        "total": len(procesos),
+        "con_retrasos": sum(bool(p.traza_fuera_tiempo) for p in procesos),
+        "finalizados": sum(p.esta_finalizado for p in procesos),
+        "abiertos": len(abiertos),
+    }
+    formato_exportacion = request.GET.get("exportar", "")
+    if formato_exportacion:
+        if not formulario.is_valid():
+            return HttpResponseBadRequest("Los filtros de trazabilidad no son válidos.")
+        filtros = _rango_indicadores(formulario)
+        volver_a = reverse("procesos:trazabilidad")
+        if parametros:
+            volver_a = f"{volver_a}?{parametros.urlencode()}"
+        return _respuesta_exportacion(
+            request,
+            formato_exportacion,
+            lambda: exportar_trazabilidad_excel(procesos, metricas, resumen_trazabilidad, filtros),
+            lambda: exportar_trazabilidad_pdf(procesos, metricas, resumen_trazabilidad, filtros),
+            "trazabilidad-seleccion",
+            volver_a,
+        )
+
+    pagina = Paginator(procesos, 10).get_page(request.GET.get("page"))
     return render(request, "procesos/trazabilidad.html", {
         "formulario_filtros": formulario,
         "procesos": pagina,
         "page_obj": pagina,
         "querystring": parametros.urlencode(),
         "total_procesos": len(procesos),
-        "procesos_con_retrasos": sum(bool(p.traza_fuera_tiempo) for p in procesos),
-        "procesos_finalizados": sum(p.esta_finalizado for p in procesos),
+        "procesos_con_retrasos": resumen_trazabilidad["con_retrasos"],
+        "procesos_finalizados": resumen_trazabilidad["finalizados"],
         "abiertos": abiertos,
         "vencidos": vencidos,
         "por_vencer": por_vencer,
@@ -400,15 +484,17 @@ def indicadores(request):
     formulario = IndicadoresFiltroForm(request.GET)
     procesos = list(_procesos_indicadores(request, formulario)) if formulario.is_valid() else []
     resumen = calcular_indicadores(procesos)
+    pagina = Paginator(procesos, 10).get_page(request.GET.get("page"))
     parametros = request.GET.copy()
     parametros.pop("page", None)
     return render(request, "procesos/indicadores.html", {
         "formulario_filtros": formulario,
-        "procesos": procesos[:20],
+        "procesos": pagina,
+        "page_obj": pagina,
         "indicadores": resumen,
         "rango": _rango_indicadores(formulario) if formulario.is_valid() else "Rango inválido",
         "querystring": parametros.urlencode(),
-        "hay_filtros": bool(request.GET.get("fecha_desde") or request.GET.get("fecha_hasta")),
+        "hay_filtros": any(request.GET.get(nombre) for nombre in formulario.fields),
     })
 
 
@@ -416,25 +502,24 @@ def indicadores(request):
 @require_GET
 def exportar_indicadores(request, formato):
     _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
-    if formato not in {"xlsx", "pdf"}:
-        return HttpResponseBadRequest("Formato de exportación no válido.")
     formulario = IndicadoresFiltroForm(request.GET)
     if not formulario.is_valid():
         return HttpResponseBadRequest("El rango de fechas no es válido.")
     procesos = list(_procesos_indicadores(request, formulario))
     resumen = calcular_indicadores(procesos)
     rango = _rango_indicadores(formulario)
-    fecha = timezone.localdate().isoformat()
-    if formato == "xlsx":
-        contenido = exportar_excel(procesos, resumen, rango)
-        tipo = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    else:
-        contenido = exportar_pdf(procesos, resumen, rango)
-        tipo = "application/pdf"
-    respuesta = HttpResponse(contenido, content_type=tipo)
-    respuesta["Content-Disposition"] = f'attachment; filename="indicadores-seleccion-{fecha}.{formato}"'
-    respuesta["Cache-Control"] = "private, no-store"
-    return respuesta
+    parametros = request.GET.urlencode()
+    volver_a = reverse("procesos:indicadores")
+    if parametros:
+        volver_a = f"{volver_a}?{parametros}"
+    return _respuesta_exportacion(
+        request,
+        formato,
+        lambda: exportar_excel(procesos, resumen, rango),
+        lambda: exportar_pdf(procesos, resumen, rango),
+        "indicadores-seleccion",
+        volver_a,
+    )
 
 
 @login_required
@@ -682,18 +767,17 @@ def lista_usuarios(request):
         perfil__rol=Perfil.Rol.SIN_ASIGNAR
     ).order_by("perfil__rol", "first_name", "username")
     bloqueados_temporales = Q(perfil__bloqueado_hasta__gt=timezone.now())
+    usuarios_activos = usuarios.filter(is_active=True).exclude(bloqueados_temporales).count()
+    usuarios_bloqueados = usuarios.filter(Q(is_active=False) | bloqueados_temporales).distinct().count()
+    pagina = Paginator(usuarios, 10).get_page(request.GET.get("page"))
+    for usuario in pagina.object_list:
+        usuario.plazo_gestion_dias = PLAZOS_ETAPA_DIAS.get(usuario.perfil.rol)
     return render(request, "procesos/usuarios_lista.html", {
-        "usuarios": usuarios,
-        "usuarios_activos": usuarios.filter(is_active=True).exclude(bloqueados_temporales).count(),
-        "usuarios_bloqueados": usuarios.filter(Q(is_active=False) | bloqueados_temporales).distinct().count(),
+        "usuarios": pagina,
+        "page_obj": pagina,
+        "usuarios_activos": usuarios_activos,
+        "usuarios_bloqueados": usuarios_bloqueados,
     })
-
-
-@login_required
-def auditoria_seguridad(request):
-    _exigir_gerente(request)
-    eventos = EventoSeguridad.objects.select_related("usuario")[:200]
-    return render(request, "procesos/auditoria_seguridad.html", {"eventos": eventos})
 
 
 @login_required

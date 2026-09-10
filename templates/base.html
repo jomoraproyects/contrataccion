@@ -28,7 +28,6 @@
         {% if rol_usuario == 'GERENTE' %}<a class="nav-link {% if request.resolver_match.url_name == 'archivados' %}active{% endif %}" {% if request.resolver_match.url_name == 'archivados' %}aria-current="page"{% endif %} href="{% url 'procesos:archivados' %}">Desactivados</a>{% endif %}
         {% if rol_usuario == 'GERENTE' %}<a class="nav-link {% if request.resolver_match.url_name == 'trazabilidad' %}active{% endif %}" {% if request.resolver_match.url_name == 'trazabilidad' %}aria-current="page"{% endif %} href="{% url 'procesos:trazabilidad' %}">Trazabilidad</a>{% endif %}
         {% if rol_usuario == 'GERENTE' or rol_usuario == 'CONTRATACION' %}<a class="nav-link {% if request.resolver_match.url_name == 'indicadores' %}active{% endif %}" {% if request.resolver_match.url_name == 'indicadores' %}aria-current="page"{% endif %} href="{% url 'procesos:indicadores' %}">Indicadores</a>{% endif %}
-        {% if rol_usuario == 'GERENTE' %}<a class="nav-link {% if request.resolver_match.url_name == 'auditoria_seguridad' %}active{% endif %}" {% if request.resolver_match.url_name == 'auditoria_seguridad' %}aria-current="page"{% endif %} href="{% url 'procesos:auditoria_seguridad' %}">Auditoría</a>{% endif %}
       </div>
       <div class="d-flex align-items-center gap-2 text-white mt-3 mt-lg-0">
         <div class="user-summary me-2"><strong>{{ user.get_full_name|default:user.username }}</strong>{% if rol_usuario_nombre %}<small>{{ rol_usuario_nombre }}</small>{% endif %}</div>

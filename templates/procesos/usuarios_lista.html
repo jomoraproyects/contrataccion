@@ -6,23 +6,34 @@
   <a class="btn btn-success btn-lg px-4 py-3 fw-bold" href="{% url 'procesos:usuario_crear' %}">+ Crear usuario</a>
 </div>
 <section class="summary-grid summary-grid-users mb-4" aria-label="Resumen de usuarios"><article class="summary-card summary-green"><span class="summary-icon" aria-hidden="true">✓</span><div><span>Usuarios activos</span><strong>{{ usuarios_activos }}</strong></div></article><article class="summary-card summary-red"><span class="summary-icon" aria-hidden="true">⊘</span><div><span>Usuarios bloqueados</span><strong>{{ usuarios_bloqueados }}</strong></div></article></section>
-<div class="alert alert-info fs-5" role="note"><strong>Control del Gerente:</strong> puede editar datos, cambiar el área, bloquear accesos o establecer una contraseña nueva para las cuentas operativas. Gerencia y Contratación son accesos esenciales y no pueden bloquearse manualmente.</div>
+<div class="alert alert-info fs-5" role="note"><strong>Control del Gerente:</strong> puede editar datos, cambiar el área, bloquear accesos o establecer una contraseña nueva para las cuentas operativas. Gerencia y Contratación son accesos esenciales y no pueden bloquearse manualmente. Los plazos se calculan en horario hábil de 7:00 a. m. a 4:00 p. m., sin fines de semana ni festivos.</div>
 <div class="card border-0 overflow-hidden">
   <div class="table-responsive">
     <table class="table table-hover align-middle mb-0 fs-5">
       <caption class="visually-hidden">Usuarios, roles y estado de acceso.</caption>
-      <thead class="table-light"><tr><th scope="col">Persona</th><th scope="col">Usuario</th><th scope="col">Rol</th><th scope="col">Estado</th><th scope="col"><span class="visually-hidden">Acciones</span></th></tr></thead>
+      <thead class="table-light"><tr><th scope="col">Persona</th><th scope="col">Usuario</th><th scope="col">Rol</th><th scope="col">Plazo de gestión</th><th scope="col">Estado</th><th scope="col"><span class="visually-hidden">Acciones</span></th></tr></thead>
       <tbody>
       {% for usuario_item in usuarios %}
         <tr>
           <td><div class="person-cell"><span class="person-avatar" aria-hidden="true">{{ usuario_item.first_name|first|default:usuario_item.username|first|upper }}</span><strong>{{ usuario_item.get_full_name|default:"Sin nombre registrado" }}</strong></div></td>
           <td><code>{{ usuario_item.username }}</code></td><td>{{ usuario_item.perfil.get_rol_display }}</td>
+          <td>{% if usuario_item.plazo_gestion_dias %}<strong>{{ usuario_item.plazo_gestion_dias }} días hábiles</strong>{% elif usuario_item.perfil.rol == 'GERENTE' %}<span class="text-body-secondary">Supervisión</span>{% else %}<span class="text-body-secondary">Sin plazo operativo</span>{% endif %}</td>
           <td>{% if not usuario_item.is_active %}<span class="badge status-rechazado">Bloqueado</span>{% elif usuario_item.perfil.bloqueo_seguridad_activo %}<span class="badge status-listo_contratacion">Bloqueo temporal de seguridad</span>{% else %}<span class="badge status-contratado">Activo</span>{% endif %}{% if usuario_item.perfil.rol == 'GERENTE' or usuario_item.perfil.rol == 'CONTRATACION' %}<div class="small text-body-secondary mt-1">Acceso esencial</div>{% endif %}</td>
           <td class="text-end">{% if usuario_item.perfil.rol == 'GERENTE' %}<span class="badge text-bg-secondary">Cuenta protegida</span>{% else %}<div class="d-flex flex-wrap justify-content-end gap-2"><a class="btn btn-outline-secondary" href="{% url 'procesos:usuario_editar' usuario_item.pk %}">Editar</a><a class="btn btn-outline-primary" href="{% url 'procesos:usuario_password' usuario_item.pk %}">Cambiar contraseña</a></div>{% endif %}</td>
         </tr>
-      {% empty %}<tr><td colspan="5" class="text-center py-5 text-body-secondary">Todavía no hay usuarios.</td></tr>{% endfor %}
+      {% empty %}<tr><td colspan="6" class="text-center py-5 text-body-secondary">Todavía no hay usuarios.</td></tr>{% endfor %}
       </tbody>
     </table>
   </div>
 </div>
+{% if page_obj.has_other_pages %}
+<nav class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mt-4" aria-label="Paginación del equipo">
+  <p class="mb-0 text-body-secondary">Página <strong>{{ page_obj.number }}</strong> de <strong>{{ page_obj.paginator.num_pages }}</strong></p>
+  <ul class="pagination mb-0">
+    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_previous %}href="?page={{ page_obj.previous_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Anterior</a></li>
+    <li class="page-item active"><span class="page-link">{{ page_obj.number }}</span></li>
+    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_next %}href="?page={{ page_obj.next_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Siguiente</a></li>
+  </ul>
+</nav>
+{% endif %}
 {% endblock %}

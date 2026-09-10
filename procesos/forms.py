@@ -179,11 +179,26 @@ class IndicadoresFiltroForm(forms.Form):
         required=False,
         widget=forms.DateInput(attrs={"type": "date"}),
     )
+    estado = forms.ChoiceField(
+        label="Estado del proceso",
+        required=False,
+        choices=[("", "Todos")] + list(ProcesoSeleccion.Estado.choices),
+    )
+    etapa = forms.ChoiceField(
+        label="Área o etapa actual",
+        required=False,
+        choices=[("", "Todas")] + list(ProcesoSeleccion.Etapa.choices),
+    )
+    vacante = forms.CharField(label="Vacante o área", required=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields.values():
-            field.widget.attrs["class"] = "form-control form-control-lg"
+            field.widget.attrs["class"] = (
+                "form-select form-select-lg"
+                if isinstance(field.widget, forms.Select)
+                else "form-control form-control-lg"
+            )
 
     def clean(self):
         datos = super().clean()
