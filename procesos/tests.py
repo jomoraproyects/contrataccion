@@ -974,7 +974,7 @@ class FlujoProcesoTests(TestCase):
         response = self.client.get(reverse("procesos:indicadores"), {
             "estado": ProcesoSeleccion.Estado.EN_CURSO,
             "etapa": ProcesoSeleccion.Etapa.RRHH,
-            "vacante": "Contab",
+            "vacante": "Contabilidad",
         })
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["indicadores"]["total"], 1)
@@ -982,6 +982,22 @@ class FlujoProcesoTests(TestCase):
         self.assertNotContains(response, "Luis Ventas")
         self.assertContains(response, "Estado: En curso")
         self.assertContains(response, "Área/etapa: Talento Humano")
+
+    def test_indicadores_muestran_vacantes_existentes_en_una_lista(self):
+        ProcesoSeleccion.objects.create(
+            nombre="Luis", apellidos="Ventas", cedula="998822", celular="3009998822",
+            fecha_llegada=date.today(), vacante="Ventas",
+            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:indicadores"))
+        self.assertContains(response, '<select name="vacante"', html=False)
+        self.assertContains(response, '<option value="Contabilidad">Contabilidad</option>', html=True)
+        self.assertContains(response, '<option value="Ventas">Ventas</option>', html=True)
+
+        filtrado = self.client.get(reverse("procesos:indicadores"), {"vacante": "Ventas"})
+        nombres_filtrados = [proceso.nombre_completo for proceso in filtrado.context["procesos"]]
+        self.assertEqual(nombres_filtrados, ["Luis Ventas"])
 
     def test_indicadores_paginan_diez_y_exportan_todos_los_filtrados(self):
         from io import BytesIO

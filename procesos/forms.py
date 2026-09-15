@@ -189,10 +189,17 @@ class IndicadoresFiltroForm(forms.Form):
         required=False,
         choices=[("", "Todas")] + list(ProcesoSeleccion.Etapa.choices),
     )
-    vacante = forms.CharField(label="Vacante o área", required=False)
+    vacante = forms.ChoiceField(
+        label="Vacante",
+        required=False,
+        choices=[("", "Todas las vacantes")],
+    )
 
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, vacantes=(), **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["vacante"].choices = [("", "Todas las vacantes")] + [
+            (vacante, vacante) for vacante in vacantes
+        ]
         for field in self.fields.values():
             field.widget.attrs["class"] = (
                 "form-select form-select-lg"
