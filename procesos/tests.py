@@ -981,6 +981,35 @@ class FlujoProcesoTests(TestCase):
         self.assertContains(response, "Estado: En curso")
         self.assertContains(response, "Área/etapa: Talento Humano")
 
+    def test_indicadores_paginan_diez_y_exportan_todos_los_filtrados(self):
+        from io import BytesIO
+        from openpyxl import load_workbook
+
+        for indice in range(12):
+            ProcesoSeleccion.objects.create(
+                nombre=f"Ventas {indice:02d}", apellidos="Prueba", cedula=f"771{indice:03d}",
+                celular="3001234567", fecha_llegada=date.today(), vacante="Ventas",
+                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        parametros = {
+            "fecha_desde": date.today().isoformat(),
+            "estado": ProcesoSeleccion.Estado.EN_CURSO,
+            "etapa": ProcesoSeleccion.Etapa.RRHH,
+            "vacante": "Ventas",
+        }
+        primera = self.client.get(reverse("procesos:indicadores"), parametros)
+        self.assertEqual(len(primera.context["procesos"]), 10)
+        self.assertEqual(primera.context["page_obj"].paginator.count, 12)
+        self.assertContains(primera, "vacante=Ventas&amp;page=2")
+
+        segunda = self.client.get(reverse("procesos:indicadores"), {**parametros, "page": 2})
+        self.assertEqual(len(segunda.context["procesos"]), 2)
+
+        excel = self.client.get(reverse("procesos:exportar_indicadores", args=["xlsx"]), parametros)
+        libro = load_workbook(BytesIO(excel.content), read_only=True, data_only=True)
+        self.assertEqual(libro["Procesos"].max_row, 13)
+
     def test_indicadores_calculan_promedio_y_mediana_por_etapa(self):
         seguimiento = self.proceso.seguimientos.get()
         seguimiento.inicio = timezone.make_aware(datetime(2026, 9, 8, 7, 0))

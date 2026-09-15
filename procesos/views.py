@@ -160,7 +160,7 @@ def _filtrar(request, queryset):
 
 
 def _contexto_lista(request, queryset, titulo, descripcion):
-    filtrados = _filtrar(request, queryset)
+    filtrados = _filtrar(request, queryset).order_by("-fecha_llegada", "-creado_en", "-pk")
     pagina = Paginator(filtrados, 10).get_page(request.GET.get("page"))
     parametros = request.GET.copy()
     parametros.pop("page", None)
@@ -181,7 +181,7 @@ def _procesos_indicadores(request, formulario):
         request.user,
         ProcesoSeleccion.objects.filter(activo=True).select_related("creado_por").prefetch_related("seguimientos"),
     )
-    return filtrar_procesos_por_fecha(base, formulario).order_by("-fecha_llegada", "-creado_en")
+    return filtrar_procesos_por_fecha(base, formulario).order_by("-fecha_llegada", "-creado_en", "-pk")
 
 
 def _rango_indicadores(formulario):
@@ -393,7 +393,7 @@ def trazabilidad(request):
     elif orden == "nombre":
         procesos.sort(key=lambda p: p.nombre_completo.casefold())
     else:
-        procesos.sort(key=lambda p: (p.fecha_llegada, p.creado_en), reverse=True)
+        procesos.sort(key=lambda p: (p.fecha_llegada, p.creado_en, p.pk), reverse=True)
 
     seguimientos_filtrados = [item for proceso in procesos for item in proceso.traza_seguimientos]
     abiertos = sorted(
