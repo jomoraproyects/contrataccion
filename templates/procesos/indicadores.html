@@ -1,8 +1,8 @@
 {% extends "base.html" %}
-{% block title %}Indicadores de selección{% endblock %}
+{% block title %}Candidatos por vacante{% endblock %}
 {% block content %}
 <header class="page-heading d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
-  <div><p class="eyebrow text-primary mb-1">Control de gestión</p><h1 class="display-6 fw-bold mb-1">Indicadores de selección</h1><p class="fs-5 text-body-secondary mb-0">Resultados y tiempos del periodo {{ rango }}.</p></div>
+  <div><p class="eyebrow text-primary mb-1">Consulta y exportación</p><h1 class="display-6 fw-bold mb-1">Candidatos por vacante</h1><p class="fs-5 text-body-secondary mb-0">Consulte los candidatos registrados según la fecha, el estado del proceso o la vacante.</p></div>
   <div class="d-flex flex-wrap gap-2">
     <a class="btn btn-success btn-lg" href="{% url 'procesos:exportar_indicadores' 'xlsx' %}{% if querystring %}?{{ querystring }}{% endif %}">Exportar Excel</a>
     <a class="btn btn-danger btn-lg" href="{% url 'procesos:exportar_indicadores' 'pdf' %}{% if querystring %}?{{ querystring }}{% endif %}">Exportar PDF</a>
@@ -10,42 +10,26 @@
 </header>
 
 <section class="card border-0 mb-4"><div class="card-body p-4">
-  <h2 class="h4 fw-bold mb-1">Filtrar el informe</h2>
-  <p class="text-body-secondary mb-3">Combine fechas, estado, etapa o vacante. Los archivos exportados respetarán exactamente estos filtros.</p>
+  <h2 class="h4 fw-bold mb-1">Filtrar candidatos</h2>
+  <p class="text-body-secondary mb-3">Los archivos de Excel y PDF incluirán únicamente los candidatos que coincidan con estos filtros.</p>
   <form method="get" class="row g-3 align-items-end" novalidate>
-    {% for field in formulario_filtros %}<div class="col-12 col-md-6 col-xl-4"><label class="form-label fw-bold" for="{{ field.id_for_label }}">{{ field.label }}</label>{{ field }}{% for error in field.errors %}<div class="text-danger fw-semibold mt-1">{{ error }}</div>{% endfor %}</div>{% endfor %}
+    <div class="col-12 col-md-6 col-xl-3"><label class="form-label fw-bold" for="{{ formulario_filtros.fecha_desde.id_for_label }}">Desde</label>{{ formulario_filtros.fecha_desde }}{% for error in formulario_filtros.fecha_desde.errors %}<div class="text-danger fw-semibold mt-1">{{ error }}</div>{% endfor %}</div>
+    <div class="col-12 col-md-6 col-xl-3"><label class="form-label fw-bold" for="{{ formulario_filtros.fecha_hasta.id_for_label }}">Hasta</label>{{ formulario_filtros.fecha_hasta }}{% for error in formulario_filtros.fecha_hasta.errors %}<div class="text-danger fw-semibold mt-1">{{ error }}</div>{% endfor %}</div>
+    <div class="col-12 col-md-6 col-xl-3"><label class="form-label fw-bold" for="{{ formulario_filtros.estado.id_for_label }}">Estado del proceso</label>{{ formulario_filtros.estado }}{% for error in formulario_filtros.estado.errors %}<div class="text-danger fw-semibold mt-1">{{ error }}</div>{% endfor %}</div>
+    <div class="col-12 col-md-6 col-xl-3"><label class="form-label fw-bold" for="{{ formulario_filtros.vacante.id_for_label }}">Vacante</label>{{ formulario_filtros.vacante }}{% for error in formulario_filtros.vacante.errors %}<div class="text-danger fw-semibold mt-1">{{ error }}</div>{% endfor %}</div>
     <div class="col-12 d-flex flex-wrap justify-content-end gap-2"><button class="btn btn-primary btn-lg px-4" type="submit">Aplicar filtros</button>{% if hay_filtros %}<a class="btn btn-outline-secondary btn-lg" href="{% url 'procesos:indicadores' %}">Limpiar</a>{% endif %}</div>
   </form>
 </div></section>
 
 {% if formulario_filtros.non_field_errors %}<div class="alert alert-danger fs-5" role="alert">{{ formulario_filtros.non_field_errors }}</div>{% endif %}
 
-<section class="summary-grid mb-4" aria-label="Resumen del periodo">
-  <article class="summary-card summary-blue"><span class="summary-icon" aria-hidden="true">#</span><div><span>Procesos iniciados</span><strong>{{ indicadores.total }}</strong><small>{{ indicadores.en_curso }} en curso</small></div></article>
-  <article class="summary-card summary-green"><span class="summary-icon" aria-hidden="true">✓</span><div><span>Contratados</span><strong>{{ indicadores.porcentaje_contratados }}%</strong><small>{{ indicadores.contratados }} de {{ indicadores.finalizados }} finalizados</small></div></article>
-  <article class="summary-card summary-red"><span class="summary-icon" aria-hidden="true">×</span><div><span>Rechazados</span><strong>{{ indicadores.porcentaje_rechazados }}%</strong><small>{{ indicadores.rechazados }} de {{ indicadores.finalizados }} finalizados</small></div></article>
-  <article class="summary-card summary-amber"><span class="summary-icon" aria-hidden="true">!</span><div><span>Próximos a vencer</span><strong>{{ indicadores.proximos_vencer|length }}</strong><small>Un día hábil o menos</small></div></article>
-</section>
-
-<div class="row g-4 mb-4">
-  <div class="col-12 col-xl-7"><section class="card border-0 h-100"><div class="card-body p-4"><h2 class="h4 fw-bold">Tiempo por etapa</h2><p class="text-body-secondary">Horas hábiles de 7:00 a. m. a 4:00 p. m.</p><div class="table-responsive"><table class="table align-middle report-table"><thead><tr><th>Etapa</th><th>Promedio</th><th>Mediana</th><th>Finalizadas</th><th>Con retraso</th></tr></thead><tbody>{% for item in indicadores.por_etapa %}<tr><th scope="row">{{ item.etapa }}</th><td>{% if item.promedio_horas is not None %}{{ item.promedio_horas }} h{% else %}—{% endif %}</td><td>{% if item.mediana_horas is not None %}{{ item.mediana_horas }} h{% else %}—{% endif %}</td><td>{{ item.finalizadas }}</td><td><span class="badge {% if item.retrasos %}text-bg-danger{% else %}text-bg-success{% endif %}">{{ item.retrasos }}</span></td></tr>{% endfor %}</tbody></table></div></div></section></div>
-  <div class="col-12 col-xl-5"><section class="card border-0 h-100"><div class="card-body p-4"><h2 class="h4 fw-bold">Área con más retrasos</h2>{% if indicadores.area_mas_retrasos %}<div class="delay-highlight"><span class="summary-icon" aria-hidden="true">!</span><div><strong>{{ indicadores.area_mas_retrasos.etapa }}</strong><p class="mb-0">{{ indicadores.area_mas_retrasos.retrasos }} etapa{{ indicadores.area_mas_retrasos.retrasos|pluralize }} fuera de plazo.</p></div></div>{% else %}<div class="empty-inline"><span>✓</span><p class="mb-0">No hay retrasos registrados en el periodo.</p></div>{% endif %}<hr><h3 class="h5 fw-bold">Procesos iniciados por mes</h3><div class="metric-list">{% for item in indicadores.por_mes %}<div><span>{{ item.etiqueta }}</span><strong>{{ item.cantidad }}</strong></div>{% empty %}<p class="text-body-secondary mb-0">No hay datos en este periodo.</p>{% endfor %}</div></div></section></div>
-</div>
-
-<div class="row g-4 mb-4">
-  <div class="col-12 col-xl-6"><section class="card border-0 h-100"><div class="card-body p-4"><h2 class="h4 fw-bold">Próximos a vencer</h2><p class="text-body-secondary">Asignaciones con un día hábil o menos.</p><div class="compact-list">{% for item in indicadores.proximos_vencer %}<a href="{% url 'procesos:detalle' item.proceso_id %}"><span><strong>{{ item.proceso.nombre_completo }}</strong><small>{{ item.get_etapa_display }} · {{ item.proceso.vacante }}</small></span><span class="badge text-bg-warning">{{ item.estado_plazo }}</span></a>{% empty %}<div class="empty-inline"><span>✓</span><p class="mb-0">No hay procesos próximos a vencer.</p></div>{% endfor %}</div></div></section></div>
-  <div class="col-12 col-xl-6"><section class="card border-0 h-100"><div class="card-body p-4"><h2 class="h4 fw-bold">Vacantes con más candidatos</h2><div class="metric-list">{% for item in indicadores.vacantes %}<div><span>{{ item.vacante }}</span><strong>{{ item.cantidad }}</strong></div>{% empty %}<p class="text-body-secondary mb-0">No hay vacantes en este periodo.</p>{% endfor %}</div></div></section></div>
-</div>
-
-<section class="card border-0"><div class="card-body p-4"><div class="d-flex justify-content-between align-items-center gap-3 mb-3"><div><h2 class="h4 fw-bold mb-1">Procesos del periodo</h2><p class="text-body-secondary mb-0">Se muestran 10 por página. La exportación incluye todos los resultados filtrados.</p></div><span class="badge text-bg-primary fs-6">{{ indicadores.total }}</span></div><div class="table-responsive"><table class="table align-middle report-table"><thead><tr><th>Candidato</th><th>Fecha</th><th>Vacante</th><th>Etapa</th><th>Estado</th><th></th></tr></thead><tbody>{% for proceso in procesos %}<tr><td><strong>{{ proceso.nombre_completo }}</strong><small class="d-block text-body-secondary">{{ proceso.cedula }}</small></td><td>{{ proceso.fecha_llegada|date:"d/m/Y" }}</td><td>{{ proceso.vacante }}</td><td>{{ proceso.get_etapa_actual_display }}</td><td><span class="badge status-{{ proceso.estado|lower }}">{{ proceso.get_estado_display }}</span></td><td><a class="btn btn-outline-primary" href="{% url 'procesos:detalle' proceso.pk %}">Ver detalle</a></td></tr>{% empty %}<tr><td colspan="6" class="text-center py-5 text-body-secondary">No hay procesos en el rango seleccionado.</td></tr>{% endfor %}</tbody></table></div></div></section>
-{% if page_obj.has_other_pages %}
+<section class="card border-0"><div class="card-body p-4"><div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-3 mb-3"><div><h2 class="h4 fw-bold mb-1">Candidatos filtrados</h2><p class="text-body-secondary mb-0">{{ rango }}. Se muestran máximo 10 candidatos por página.</p></div><span class="badge text-bg-primary fs-6">{{ indicadores.total }} resultado{{ indicadores.total|pluralize }}</span></div><div class="table-responsive"><table class="table align-middle report-table"><thead><tr><th>Candidato</th><th>Cédula</th><th>Fecha de llegada</th><th>Vacante</th><th>Estado del proceso</th><th></th></tr></thead><tbody>{% for proceso in procesos %}<tr><td><strong>{{ proceso.nombre_completo }}</strong></td><td>{{ proceso.cedula }}</td><td>{{ proceso.fecha_llegada|date:"d/m/Y" }}</td><td>{{ proceso.vacante }}</td><td><span class="badge status-{{ proceso.estado|lower }}">{{ proceso.get_estado_display }}</span></td><td class="text-end"><a class="btn btn-outline-primary" href="{% url 'procesos:detalle' proceso.pk %}">Ver detalle</a></td></tr>{% empty %}<tr><td colspan="6" class="text-center py-5 text-body-secondary">No hay candidatos que coincidan con los filtros seleccionados.</td></tr>{% endfor %}</tbody></table></div></div></section>
 <nav class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mt-4" aria-label="Paginación de indicadores">
-  <p class="mb-0 text-body-secondary">Página <strong>{{ page_obj.number }}</strong> de <strong>{{ page_obj.paginator.num_pages }}</strong></p>
+  <p class="mb-0 text-body-secondary">Mostrando {{ page_obj.start_index }}–{{ page_obj.end_index }} de {{ page_obj.paginator.count }} · Página <strong>{{ page_obj.number }}</strong> de <strong>{{ page_obj.paginator.num_pages }}</strong></p>
   <ul class="pagination mb-0">
     <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_previous %}href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page_obj.previous_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Anterior</a></li>
     <li class="page-item active"><span class="page-link">{{ page_obj.number }}</span></li>
     <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_next %}href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page_obj.next_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Siguiente</a></li>
   </ul>
 </nav>
-{% endif %}
 {% endblock %}

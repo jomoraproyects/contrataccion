@@ -932,9 +932,11 @@ class FlujoProcesoTests(TestCase):
             response = self.client.get(reverse("procesos:indicadores"))
             with self.subTest(rol=rol):
                 self.assertEqual(response.status_code, 200)
-                self.assertContains(response, "Indicadores de selección")
-                self.assertContains(response, "Procesos iniciados")
-                self.assertContains(response, "Vacantes con más candidatos")
+                self.assertContains(response, "Candidatos por vacante")
+                self.assertContains(response, "Candidatos filtrados")
+                self.assertContains(response, "Estado del proceso")
+                self.assertNotContains(response, "Tiempo por etapa")
+                self.assertNotContains(response, "Área o etapa actual")
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
         self.assertEqual(self.client.get(reverse("procesos:indicadores")).status_code, 403)
 
