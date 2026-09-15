@@ -184,14 +184,6 @@ def _procesos_indicadores(request, formulario):
     return filtrar_procesos_por_fecha(base, formulario).order_by("-fecha_llegada", "-creado_en", "-pk")
 
 
-def _vacantes_indicadores(usuario):
-    procesos = _procesos_visibles(
-        usuario,
-        ProcesoSeleccion.objects.filter(activo=True),
-    )
-    return procesos.exclude(vacante="").order_by("vacante").values_list("vacante", flat=True).distinct()
-
-
 def _rango_indicadores(formulario):
     desde = formulario.cleaned_data.get("fecha_desde")
     hasta = formulario.cleaned_data.get("fecha_hasta")
@@ -489,7 +481,7 @@ def trazabilidad(request):
 @login_required
 def indicadores(request):
     _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
-    formulario = IndicadoresFiltroForm(request.GET, vacantes=_vacantes_indicadores(request.user))
+    formulario = IndicadoresFiltroForm(request.GET)
     procesos = list(_procesos_indicadores(request, formulario)) if formulario.is_valid() else []
     resumen = calcular_indicadores(procesos)
     pagina = Paginator(procesos, 10).get_page(request.GET.get("page"))
@@ -510,7 +502,7 @@ def indicadores(request):
 @require_GET
 def exportar_indicadores(request, formato):
     _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
-    formulario = IndicadoresFiltroForm(request.GET, vacantes=_vacantes_indicadores(request.user))
+    formulario = IndicadoresFiltroForm(request.GET)
     if not formulario.is_valid():
         return HttpResponseBadRequest("El rango de fechas no es válido.")
     procesos = list(_procesos_indicadores(request, formulario))

@@ -983,7 +983,7 @@ class FlujoProcesoTests(TestCase):
         self.assertContains(response, "Estado: En curso")
         self.assertContains(response, "Área/etapa: Talento Humano")
 
-    def test_indicadores_muestran_vacantes_existentes_en_una_lista(self):
+    def test_indicadores_permiten_escribir_vacante_sin_importar_mayusculas(self):
         ProcesoSeleccion.objects.create(
             nombre="Luis", apellidos="Ventas", cedula="998822", celular="3009998822",
             fecha_llegada=date.today(), vacante="Ventas",
@@ -991,11 +991,9 @@ class FlujoProcesoTests(TestCase):
         )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:indicadores"))
-        self.assertContains(response, '<select name="vacante"', html=False)
-        self.assertContains(response, '<option value="Contabilidad">Contabilidad</option>', html=True)
-        self.assertContains(response, '<option value="Ventas">Ventas</option>', html=True)
+        self.assertContains(response, '<input type="text" name="vacante"', html=False)
 
-        filtrado = self.client.get(reverse("procesos:indicadores"), {"vacante": "Ventas"})
+        filtrado = self.client.get(reverse("procesos:indicadores"), {"vacante": "vEnTaS"})
         nombres_filtrados = [proceso.nombre_completo for proceso in filtrado.context["procesos"]]
         self.assertEqual(nombres_filtrados, ["Luis Ventas"])
 
@@ -1026,7 +1024,7 @@ class FlujoProcesoTests(TestCase):
 
         excel = self.client.get(reverse("procesos:exportar_indicadores", args=["xlsx"]), parametros)
         libro = load_workbook(BytesIO(excel.content), read_only=True, data_only=True)
-        self.assertEqual(libro["Procesos"].max_row, 13)
+        self.assertEqual(libro["Candidatos"].max_row, 13)
 
     def test_indicadores_calculan_promedio_y_mediana_por_etapa(self):
         seguimiento = self.proceso.seguimientos.get()
@@ -1056,11 +1054,10 @@ class FlujoProcesoTests(TestCase):
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         libro = load_workbook(BytesIO(excel.content), read_only=True, data_only=True)
-        self.assertEqual(libro.sheetnames, [
-            "Resumen", "Procesos", "Procesos por mes", "Tiempos por etapa", "Vacantes", "Próximos a vencer",
-        ])
-        self.assertEqual(libro["Procesos"]["B2"].value, "Ana Pérez")
-        self.assertEqual(libro["Próximos a vencer"]["A2"].value, "Ana Pérez")
+        self.assertEqual(libro.sheetnames, ["Candidatos"])
+        self.assertEqual(libro["Candidatos"]["A2"].value, "Ana Pérez")
+        self.assertEqual(libro["Candidatos"]["E2"].value.date(), date.today())
+        self.assertEqual(libro["Candidatos"]["G2"].value, "En curso")
 
         pdf = self.client.get(reverse("procesos:exportar_indicadores", args=["pdf"]), parametros)
         self.assertEqual(pdf.status_code, 200)
