@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from django.utils import timezone
 
 from .models import Candidato, Decision, Perfil, ProcesoSeleccion
-from .validacion import normalizar_cedula, normalizar_celular
+from .validacion import normalizar_cedula, normalizar_celular, normalizar_vacante
 
 
 ROLES_OPERATIVOS = [
@@ -51,6 +51,9 @@ class ProcesoForm(forms.ModelForm):
 
     def clean_celular(self):
         return normalizar_celular(self.cleaned_data["celular"])
+
+    def clean_vacante(self):
+        return normalizar_vacante(self.cleaned_data["vacante"])
 
     def clean_fecha_llegada(self):
         fecha = self.cleaned_data["fecha_llegada"]
@@ -169,6 +172,7 @@ class TrazabilidadFiltroForm(forms.Form):
 
 
 class IndicadoresFiltroForm(forms.Form):
+    q = forms.CharField(label="Nombre o cédula", required=False)
     fecha_desde = forms.DateField(
         label="Procesos recibidos desde",
         required=False,
@@ -193,6 +197,8 @@ class IndicadoresFiltroForm(forms.Form):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields["q"].widget.attrs["placeholder"] = "Ejemplo: Ana o 123456"
+        self.fields["vacante"].widget.attrs["placeholder"] = "Ejemplo: Recolección"
         for field in self.fields.values():
             field.widget.attrs["class"] = (
                 "form-select form-select-lg"

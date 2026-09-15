@@ -21,3 +21,8 @@ def normalizar_celular(valor):
     if not numero.isdigit() or not 7 <= len(numero) <= 15:
         raise ValidationError("Escriba un celular válido de 7 a 15 números.")
     return celular
+
+
+def normalizar_vacante(valor):
+    """Evita variantes por mayúsculas o espacios en las vacantes nuevas."""
+    return " ".join((valor or "").split()).upper()

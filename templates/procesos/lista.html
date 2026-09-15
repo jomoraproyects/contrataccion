@@ -49,15 +49,6 @@
     </table>
   </div>
 </div>
-{% if page_obj.has_other_pages %}
-<nav class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mt-4" aria-label="Paginación de candidatos">
-  <p class="mb-0 text-body-secondary">Página <strong>{{ page_obj.number }}</strong> de <strong>{{ page_obj.paginator.num_pages }}</strong></p>
-  <ul class="pagination mb-0">
-    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_previous %}href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page_obj.previous_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Anterior</a></li>
-    <li class="page-item active"><span class="page-link">{{ page_obj.number }}</span></li>
-    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_next %}href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page_obj.next_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Siguiente</a></li>
-  </ul>
-</nav>
-{% endif %}
+{% include "procesos/_paginacion.html" with etiqueta="candidatos" %}
 {% if historial_terminados %}<section class="card shadow-sm border-0 overflow-hidden mt-5" aria-labelledby="titulo-historial-area"><div class="card-body p-4 pb-0"><p class="eyebrow text-primary mb-1">Solo lectura</p><h2 id="titulo-historial-area" class="h3 fw-bold mb-1">Procesos terminados de su área</h2><p class="text-body-secondary mb-4">Últimos procesos en los que su área registró una decisión.</p></div><div class="table-responsive"><table class="table table-hover align-middle mb-0 fs-5"><thead class="table-light"><tr><th scope="col">Candidato</th><th scope="col">Vacante</th><th scope="col">Resultado</th><th scope="col">Fecha</th><th scope="col"><span class="visually-hidden">Acción</span></th></tr></thead><tbody>{% for proceso in historial_terminados %}<tr><td><strong>{{ proceso.nombre_completo }}</strong><div class="text-body-secondary">{{ proceso.cedula }}</div></td><td>{{ proceso.vacante }}</td><td><span class="badge rounded-pill status-{{ proceso.estado|lower }}">{{ proceso.get_estado_display }}</span></td><td>{{ proceso.actualizado_en|date:"d/m/Y" }}</td><td class="text-end"><a class="btn btn-outline-primary" href="{% url 'procesos:detalle' proceso.pk %}">Ver historial</a></td></tr>{% endfor %}</tbody></table></div></section>{% endif %}
 {% endblock %}

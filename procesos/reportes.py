@@ -4,6 +4,7 @@ from statistics import mean, median
 from xml.sax.saxutils import escape
 
 from django.utils import timezone
+from django.db.models import Q
 
 from .models import ProcesoSeleccion, SeguimientoEtapa
 
@@ -13,6 +14,14 @@ def filtrar_procesos_por_fecha(queryset, formulario):
         return queryset.none()
     desde = formulario.cleaned_data.get("fecha_desde")
     hasta = formulario.cleaned_data.get("fecha_hasta")
+    q = formulario.cleaned_data.get("q", "").strip()
+    if q:
+        for termino in q.split():
+            queryset = queryset.filter(
+                Q(nombre__icontains=termino)
+                | Q(apellidos__icontains=termino)
+                | Q(cedula__icontains=termino)
+            )
     if desde:
         queryset = queryset.filter(fecha_llegada__gte=desde)
     if hasta:

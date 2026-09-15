@@ -720,6 +720,16 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(procesos[0].candidato_id, procesos[1].candidato_id)
         self.assertEqual(Candidato.objects.filter(cedula="12345").count(), 1)
 
+    def test_vacante_nueva_se_guarda_normalizada(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        response = self.client.post(reverse("procesos:crear"), {
+            "nombre": "Carlos", "apellidos": "López", "cedula": "778899",
+            "celular": "3009876543", "fecha_llegada": date.today().isoformat(),
+            "vacante": "  aseo   -   recolección  ",
+        })
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(ProcesoSeleccion.objects.get(cedula="778899").vacante, "ASEO - RECOLECCIÓN")
+
     def test_consulta_cedula_recupera_datos_e_historial(self):
         self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
         response = self.client.get(reverse("procesos:consultar_candidato_cedula"), {"cedula": "12.345"})
@@ -993,9 +1003,14 @@ class FlujoProcesoTests(TestCase):
         response = self.client.get(reverse("procesos:indicadores"))
         self.assertContains(response, '<input type="text" name="vacante"', html=False)
 
-        filtrado = self.client.get(reverse("procesos:indicadores"), {"vacante": "vEnTaS"})
+        filtrado = self.client.get(reverse("procesos:indicadores"), {
+            "q": "998822",
+            "vacante": "vEnTaS",
+        })
         nombres_filtrados = [proceso.nombre_completo for proceso in filtrado.context["procesos"]]
         self.assertEqual(nombres_filtrados, ["Luis Ventas"])
+        self.assertContains(filtrado, "Búsqueda: 998822")
+        self.assertContains(filtrado, "Filtros aplicados:")
 
     def test_indicadores_paginan_diez_y_exportan_todos_los_filtrados(self):
         from io import BytesIO
@@ -1046,7 +1061,12 @@ class FlujoProcesoTests(TestCase):
         seguimiento.fecha_limite = timezone.now() + timedelta(hours=2)
         seguimiento.save(update_fields=["fecha_limite"])
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
-        parametros = {"fecha_desde": date.today().isoformat(), "fecha_hasta": date.today().isoformat()}
+        parametros = {
+            "fecha_desde": date.today().isoformat(),
+            "fecha_hasta": date.today().isoformat(),
+            "estado": ProcesoSeleccion.Estado.EN_CURSO,
+            "vacante": "CONTABILIDAD",
+        }
         excel = self.client.get(reverse("procesos:exportar_indicadores", args=["xlsx"]), parametros)
         self.assertEqual(excel.status_code, 200)
         self.assertEqual(
@@ -1058,6 +1078,10 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(libro["Candidatos"]["A2"].value, "Ana Pérez")
         self.assertEqual(libro["Candidatos"]["E2"].value.date(), date.today())
         self.assertEqual(libro["Candidatos"]["G2"].value, "En curso")
+        self.assertIn(
+            f"candidatos-en-curso-contabilidad-desde-{date.today().isoformat()}-hasta-{date.today().isoformat()}",
+            excel["Content-Disposition"],
+        )
 
         pdf = self.client.get(reverse("procesos:exportar_indicadores", args=["pdf"]), parametros)
         self.assertEqual(pdf.status_code, 200)

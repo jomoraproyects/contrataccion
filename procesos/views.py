@@ -13,6 +13,7 @@ from django.urls import reverse
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.utils.http import url_has_allowed_host_and_scheme
+from django.utils.text import slugify
 from django.views.decorators.http import require_GET, require_POST
 
 from .forms import (
@@ -167,6 +168,7 @@ def _contexto_lista(request, queryset, titulo, descripcion):
     return {
         "procesos": pagina,
         "page_obj": pagina,
+        "paginas": _opciones_paginacion(pagina),
         "querystring": parametros.urlencode(),
         "titulo": titulo,
         "descripcion": descripcion,
@@ -182,6 +184,21 @@ def _procesos_indicadores(request, formulario):
         ProcesoSeleccion.objects.filter(activo=True).select_related("creado_por").prefetch_related("seguimientos"),
     )
     return filtrar_procesos_por_fecha(base, formulario).order_by("-fecha_llegada", "-creado_en", "-pk")
+
+
+def _opciones_paginacion(pagina):
+    return [
+        {
+            "numero": numero,
+            "actual": numero == pagina.number,
+            "separador": numero == Paginator.ELLIPSIS,
+        }
+        for numero in pagina.paginator.get_elided_page_range(
+            pagina.number,
+            on_each_side=2,
+            on_ends=1,
+        )
+    ]
 
 
 def _rango_indicadores(formulario):
@@ -210,6 +227,22 @@ def _rango_indicadores(formulario):
     if situacion:
         partes.append(f"Cumplimiento: {dict(TrazabilidadFiltroForm.SITUACIONES).get(situacion, situacion)}")
     return " · ".join(partes) if partes else "Todos los registros disponibles"
+
+
+def _nombre_exportacion_indicadores(formulario):
+    datos = formulario.cleaned_data
+    partes = ["candidatos"]
+    if datos.get("estado"):
+        partes.append(slugify(dict(ProcesoSeleccion.Estado.choices)[datos["estado"]]))
+    if datos.get("vacante"):
+        partes.append(slugify(datos["vacante"])[:35])
+    if datos.get("q"):
+        partes.extend(["busqueda", slugify(datos["q"])[:25]])
+    if datos.get("fecha_desde"):
+        partes.extend(["desde", datos["fecha_desde"].isoformat()])
+    if datos.get("fecha_hasta"):
+        partes.extend(["hasta", datos["fecha_hasta"].isoformat()])
+    return "-".join(parte for parte in partes if parte)[:140]
 
 
 def _respuesta_exportacion(request, formato, generador_excel, generador_pdf, nombre, volver_a):
@@ -464,6 +497,7 @@ def trazabilidad(request):
         "formulario_filtros": formulario,
         "procesos": pagina,
         "page_obj": pagina,
+        "paginas": _opciones_paginacion(pagina),
         "querystring": parametros.urlencode(),
         "total_procesos": len(procesos),
         "procesos_con_retrasos": resumen_trazabilidad["con_retrasos"],
@@ -491,6 +525,7 @@ def indicadores(request):
         "formulario_filtros": formulario,
         "procesos": pagina,
         "page_obj": pagina,
+        "paginas": _opciones_paginacion(pagina),
         "indicadores": resumen,
         "rango": _rango_indicadores(formulario) if formulario.is_valid() else "Rango inválido",
         "querystring": parametros.urlencode(),
@@ -517,7 +552,7 @@ def exportar_indicadores(request, formato):
         formato,
         lambda: exportar_excel(procesos, resumen, rango),
         lambda: exportar_pdf(procesos, resumen, rango),
-        "indicadores-seleccion",
+        _nombre_exportacion_indicadores(formulario),
         volver_a,
     )
 
@@ -775,6 +810,7 @@ def lista_usuarios(request):
     return render(request, "procesos/usuarios_lista.html", {
         "usuarios": pagina,
         "page_obj": pagina,
+        "paginas": _opciones_paginacion(pagina),
         "usuarios_activos": usuarios_activos,
         "usuarios_bloqueados": usuarios_bloqueados,
     })

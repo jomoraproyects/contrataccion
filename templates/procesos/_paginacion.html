@@ -1,0 +1,18 @@
+{% if page_obj %}
+<nav class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-center gap-2 mt-4" aria-label="Paginación de {{ etiqueta|default:'resultados' }}">
+  <p class="mb-0 text-body-secondary">Mostrando {{ page_obj.start_index }}–{{ page_obj.end_index }} de {{ page_obj.paginator.count }} · Página <strong>{{ page_obj.number }}</strong> de <strong>{{ page_obj.paginator.num_pages }}</strong></p>
+  <ul class="pagination flex-wrap mb-0">
+    <li class="page-item {% if not page_obj.has_previous %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_previous %}href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page_obj.previous_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Anterior</a></li>
+    {% for opcion in paginas %}
+      {% if opcion.separador %}
+        <li class="page-item disabled"><span class="page-link" aria-hidden="true">…</span></li>
+      {% elif opcion.actual %}
+        <li class="page-item active" aria-current="page"><span class="page-link">{{ opcion.numero }}</span></li>
+      {% else %}
+        <li class="page-item"><a class="page-link" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ opcion.numero }}">{{ opcion.numero }}</a></li>
+      {% endif %}
+    {% endfor %}
+    <li class="page-item {% if not page_obj.has_next %}disabled{% endif %}"><a class="page-link" {% if page_obj.has_next %}href="?{% if querystring %}{{ querystring }}&amp;{% endif %}page={{ page_obj.next_page_number }}"{% else %}aria-disabled="true" tabindex="-1"{% endif %}>Siguiente</a></li>
+  </ul>
+</nav>
+{% endif %}
