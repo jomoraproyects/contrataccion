@@ -136,7 +136,7 @@ class FlujoProcesoTests(TestCase):
     def test_estilos_principales_tienen_version_para_evitar_cache_antigua(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:trazabilidad"))
-        self.assertContains(response, "css/app.css?v=20260908.2")
+        self.assertContains(response, "css/app.css?v=20261013.7")
 
     def test_trazabilidad_filtra_por_fecha_estado_nombre_y_vacante(self):
         otro = ProcesoSeleccion.objects.create(
@@ -357,8 +357,11 @@ class FlujoProcesoTests(TestCase):
         self.assertContains(response, "Saltar al contenido principal")
         self.assertContains(response, "data-theme-toggle")
         self.assertContains(response, 'autocomplete="current-password"')
-        self.assertContains(response, "Selección Serviciudad")
+        self.assertContains(response, "Selección de Personal")
         self.assertContains(response, 'img/serviciudad.jpg')
+        self.assertContains(response, 'login-field-user')
+        self.assertContains(response, 'login-field-password')
+        self.assertContains(response, 'data-password-toggle')
         self.assertNotContains(response, "Información clara")
 
     def test_usuario_autenticado_no_vuelve_a_ver_el_login(self):
@@ -475,12 +478,72 @@ class FlujoProcesoTests(TestCase):
             )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:lista"), {"vacante": "Ventas"})
-        self.assertEqual(len(response.context["procesos"]), 10)
+        self.assertEqual(len(response.context["procesos"]), 5)
         self.assertContains(response, "vacante=Ventas&amp;page=2")
         response = self.client.get(reverse("procesos:lista"), {"vacante": "Ventas", "page": 2})
-        self.assertEqual(len(response.context["procesos"]), 10)
+        self.assertEqual(len(response.context["procesos"]), 5)
         response = self.client.get(reverse("procesos:lista"), {"vacante": "Ventas", "page": 3})
         self.assertEqual(len(response.context["procesos"]), 5)
+        self.assertEqual(response.context["page_obj"].paginator.num_pages, 5)
+
+    def test_trazabilidad_muestra_cinco_recientes_por_pagina(self):
+        for indice in range(11):
+            ProcesoSeleccion.objects.create(
+                nombre=f"Reciente {indice:02d}", apellidos="Prueba", cedula=f"881{indice:03d}",
+                celular="3001234567", fecha_llegada=date.today(), vacante="Ventas",
+                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        primera = self.client.get(reverse("procesos:trazabilidad"))
+        self.assertEqual(len(primera.context["procesos"]), 5)
+        self.assertEqual(primera.context["procesos"][0].nombre, "Reciente 10")
+        tercera = self.client.get(reverse("procesos:trazabilidad"), {"page": 3})
+        self.assertEqual(len(tercera.context["procesos"]), 2)
+        self.assertEqual(tercera.context["page_obj"].paginator.count, 12)
+
+    def test_equipo_muestra_cinco_usuarios_por_pagina(self):
+        for indice in range(2):
+            usuario = User.objects.create_user(username=f"rrhh_nuevo_{indice}", password="clave-de-prueba")
+            usuario.perfil.rol = Perfil.Rol.RRHH
+            usuario.perfil.save()
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        primera = self.client.get(reverse("procesos:usuarios"))
+        self.assertEqual(len(primera.context["usuarios"]), 5)
+        self.assertEqual(primera.context["usuarios"][0].username, "rrhh_nuevo_1")
+        segunda = self.client.get(reverse("procesos:usuarios"), {"page": 2})
+        self.assertEqual(len(segunda.context["usuarios"]), 2)
+
+    def test_bandeja_area_pagina_pendientes_sin_perder_total(self):
+        for indice in range(6):
+            ProcesoSeleccion.objects.create(
+                nombre=f"Pendiente {indice}", apellidos="Prueba", cedula=f"771{indice:03d}",
+                celular="3001234567", fecha_llegada=date.today(), vacante="Ventas",
+                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            )
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        primera = self.client.get(reverse("procesos:lista"))
+        self.assertEqual(len(primera.context["asignaciones"]), 5)
+        self.assertEqual(primera.context["asignaciones"].paginator.count, 7)
+        self.assertContains(primera, "asignaciones_page=2")
+        segunda = self.client.get(reverse("procesos:lista"), {"asignaciones_page": 2})
+        self.assertEqual(len(segunda.context["asignaciones"]), 2)
+
+    def test_bandeja_area_pagina_historial_terminado(self):
+        for indice in range(7):
+            proceso = ProcesoSeleccion.objects.create(
+                nombre=f"Terminado {indice}", apellidos="Prueba", cedula=f"773{indice:03d}",
+                celular="3001234567", fecha_llegada=date.today(), vacante="Ventas",
+                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            )
+            proceso.registrar_decision(
+                self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa",
+            )
+        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
+        primera = self.client.get(reverse("procesos:lista"))
+        self.assertEqual(len(primera.context["historial_terminados"]), 5)
+        self.assertContains(primera, "historial_page=2")
+        segunda = self.client.get(reverse("procesos:lista"), {"historial_page": 2})
+        self.assertEqual(len(segunda.context["historial_terminados"]), 2)
 
     def test_usuario_operativo_no_puede_gestionar_cuentas(self):
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
@@ -1014,7 +1077,7 @@ class FlujoProcesoTests(TestCase):
         self.assertContains(filtrado, "Búsqueda: 998822")
         self.assertContains(filtrado, "Filtros aplicados:")
 
-    def test_indicadores_paginan_diez_y_exportan_todos_los_filtrados(self):
+    def test_indicadores_paginan_cinco_y_exportan_todos_los_filtrados(self):
         from io import BytesIO
         from openpyxl import load_workbook
 
@@ -1032,16 +1095,39 @@ class FlujoProcesoTests(TestCase):
             "vacante": "Ventas",
         }
         primera = self.client.get(reverse("procesos:indicadores"), parametros)
-        self.assertEqual(len(primera.context["procesos"]), 10)
+        self.assertEqual(len(primera.context["procesos"]), 5)
         self.assertEqual(primera.context["page_obj"].paginator.count, 12)
         self.assertContains(primera, "vacante=Ventas&amp;page=2")
 
         segunda = self.client.get(reverse("procesos:indicadores"), {**parametros, "page": 2})
-        self.assertEqual(len(segunda.context["procesos"]), 2)
+        self.assertEqual(len(segunda.context["procesos"]), 5)
+        tercera = self.client.get(reverse("procesos:indicadores"), {**parametros, "page": 3})
+        self.assertEqual(len(tercera.context["procesos"]), 2)
 
         excel = self.client.get(reverse("procesos:exportar_indicadores", args=["xlsx"]), parametros)
         libro = load_workbook(BytesIO(excel.content), read_only=True, data_only=True)
         self.assertEqual(libro["Candidatos"].max_row, 13)
+
+    def test_indicadores_destacan_vacante_y_etapa_mas_demorada(self):
+        for indice, vacante in enumerate(("Ventas", "VENTAS", "Compras")):
+            ProcesoSeleccion.objects.create(
+                nombre=f"Persona {indice}", apellidos="Prueba", cedula=f"882{indice:03d}",
+                celular="3001234567", fecha_llegada=date.today(), vacante=vacante,
+                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            )
+        seguimiento = self.proceso.seguimientos.get()
+        seguimiento.inicio = timezone.make_aware(datetime(2026, 9, 8, 7, 0))
+        seguimiento.fin = timezone.make_aware(datetime(2026, 9, 8, 12, 0))
+        seguimiento.resultado = SeguimientoEtapa.Resultado.APROBADO
+        seguimiento.save()
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.get(reverse("procesos:indicadores"))
+        indicadores = response.context["indicadores"]
+        self.assertEqual(indicadores["vacante_mas_candidatos"], {"vacante": "VENTAS", "cantidad": 2})
+        self.assertEqual(indicadores["area_mas_demorada"]["etapa"], "Talento Humano")
+        self.assertEqual(indicadores["area_mas_demorada"]["promedio_horas"], 5.0)
+        self.assertContains(response, "distribution-donut")
+        self.assertContains(response, "Etapa más demorada")
 
     def test_indicadores_calculan_promedio_y_mediana_por_etapa(self):
         seguimiento = self.proceso.seguimientos.get()

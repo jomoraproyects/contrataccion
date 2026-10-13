@@ -51,10 +51,11 @@
     {% for metrica in metricas %}
     <article class="card trace-stage-card border-0 {% if metrica.es_cuello_botella %}is-bottleneck{% endif %}">
       <div class="card-body p-4">
-        <div class="d-flex justify-content-between gap-2"><p class="eyebrow text-primary mb-1">Plazo: {{ metrica.plazo }} días hábiles</p>{% if metrica.es_cuello_botella %}<span class="badge text-bg-danger align-self-start">Mayor demora</span>{% endif %}</div>
-        <h3 class="h4 fw-bold">{{ metrica.etapa }}</h3>
-        {% if metrica.promedio_horas != None %}<p class="display-6 fw-bold mb-1">{{ metrica.promedio_horas }} h</p><p class="text-body-secondary mb-3">Promedio de tiempo hábil observado</p>{% else %}<p class="text-body-secondary py-3">Sin etapas para analizar en este filtro.</p>{% endif %}
-        <div class="stage-stats"><span><strong>{{ metrica.abiertos }}</strong> abiertas</span><span class="{% if metrica.vencidos %}text-danger{% endif %}"><strong>{{ metrica.vencidos }}</strong> vencidas</span><span><strong>{{ metrica.finalizados }}</strong> finalizadas</span></div>
+        <div class="trace-stage-top"><span class="trace-stage-number" aria-hidden="true">{{ forloop.counter|stringformat:"02d" }}</span><span class="trace-stage-deadline">Plazo: {{ metrica.plazo }} días hábiles</span></div>
+        <h3 class="h4 fw-bold mt-3 mb-2">{{ metrica.etapa }}</h3>
+        {% if metrica.es_cuello_botella %}<span class="badge text-bg-danger mb-3">Mayor demora</span>{% endif %}
+        {% if metrica.promedio_horas != None %}<div class="trace-stage-time"><strong>{{ metrica.promedio_horas }} h</strong><span>Promedio en horas hábiles</span></div><progress class="trace-stage-progress" value="{{ metrica.barra_porcentaje }}" max="100">{{ metrica.promedio_horas }} horas</progress>{% else %}<p class="text-body-secondary py-3 mb-0">Sin etapas para analizar en este filtro.</p>{% endif %}
+        <div class="stage-stats"><span><strong>{{ metrica.abiertos }}</strong><small>Abiertas</small></span><span class="{% if metrica.vencidos %}has-delay{% endif %}"><strong>{{ metrica.vencidos }}</strong><small>Vencidas</small></span><span><strong>{{ metrica.finalizados }}</strong><small>Finalizadas</small></span></div>
       </div>
     </article>
     {% endfor %}
@@ -62,18 +63,19 @@
 </section>
 
 <section aria-labelledby="titulo-procesos-traza">
-  <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-2 mb-3"><div><h2 id="titulo-procesos-traza" class="h3 fw-bold mb-1">Trazabilidad por candidato</h2><p class="text-body-secondary mb-0">La información de las etapas permanece cerrada para mantener una vista limpia.</p></div><span class="fw-semibold">{{ total_procesos }} resultado{{ total_procesos|pluralize }}</span></div>
+  <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-end gap-2 mb-3"><div><h2 id="titulo-procesos-traza" class="h3 fw-bold mb-1">Trazabilidad por candidato</h2><p class="text-body-secondary mb-0">Cinco procesos por página, del más reciente al más antiguo. Seleccione «Ver etapas» para conocer cada tiempo.</p></div><span class="fw-semibold">{{ total_procesos }} resultado{{ total_procesos|pluralize }}</span></div>
   <div class="trace-process-list">
     {% for proceso in procesos %}
     <details class="card trace-process-card">
       <summary class="trace-process-summary">
         <div class="person-cell"><span class="person-avatar" aria-hidden="true">{{ proceso.nombre|first|upper }}{{ proceso.apellidos|first|upper }}</span><div><strong>{{ proceso.nombre_completo }}</strong><small>{{ proceso.cedula }} · {{ proceso.vacante }}</small></div></div>
         <div class="trace-summary-item"><span>Etapa actual</span><strong>{{ proceso.get_etapa_actual_display }}</strong><small>{{ proceso.get_estado_display }}</small></div>
-        <div class="trace-summary-item"><span>Tiempo acumulado</span><strong>{{ proceso.traza_total_horas }} h hábiles</strong>{% if proceso.traza_mas_lenta %}<small>Mayor: {{ proceso.traza_mas_lenta.get_etapa_display }} ({{ proceso.traza_mas_lenta.duracion_horas }} h)</small>{% endif %}</div>
+        <div class="trace-summary-item"><span>Tiempo acumulado</span><strong>{{ proceso.traza_total_horas }} h hábiles</strong><small>Desde el inicio del proceso</small></div>
         <div class="trace-summary-item trace-summary-situation"><span>Cumplimiento</span><span class="badge rounded-pill text-bg-{{ proceso.traza_clase_plazo }}">{{ proceso.traza_estado_plazo }}</span>{% if proceso.traza_fuera_tiempo %}<small class="text-danger">{{ proceso.traza_fuera_tiempo }} etapa{{ proceso.traza_fuera_tiempo|pluralize }} fuera de tiempo</small>{% else %}<small>Sin retrasos registrados</small>{% endif %}</div>
         <span class="trace-toggle" aria-hidden="true"><span class="trace-toggle-label">Ver etapas</span><span class="trace-chevron">⌄</span></span>
       </summary>
       <div class="trace-process-detail">
+        {% if proceso.traza_mas_lenta %}<div class="trace-detail-highlight"><span aria-hidden="true">◷</span> La etapa de mayor duración fue <strong>{{ proceso.traza_mas_lenta.get_etapa_display }}</strong> ({{ proceso.traza_mas_lenta.duracion_horas }} h hábiles).</div>{% endif %}
         <div class="table-responsive"><table class="table tracking-table align-middle mb-0"><thead><tr><th>Etapa</th><th>Plazo</th><th>Inicio y finalización</th><th>Tiempo hábil</th><th>Resultado</th><th>Cumplimiento</th></tr></thead><tbody>
           {% for seguimiento in proceso.traza_seguimientos %}<tr><td><strong>{{ seguimiento.get_etapa_display }}</strong>{% if seguimiento.ciclo > 1 %}<div class="small text-body-secondary">Ciclo {{ seguimiento.ciclo }}</div>{% endif %}</td><td>{{ seguimiento.plazo_dias }} días hábiles</td><td><div class="management-period"><div><span>Inicio:</span><strong>{{ seguimiento.inicio|date:"d/m/Y H:i" }}</strong></div><div><span>Finalizó:</span><strong>{% if seguimiento.fin %}{{ seguimiento.fin|date:"d/m/Y H:i" }}{% else %}En curso{% endif %}</strong></div></div></td><td><strong>{{ seguimiento.duracion_horas }} h</strong></td><td>{{ seguimiento.get_resultado_display|default:"Pendiente" }}</td><td><span class="badge rounded-pill text-bg-{{ seguimiento.clase_plazo }}">{{ seguimiento.estado_plazo }}</span></td></tr>{% empty %}<tr class="tracking-empty"><td colspan="6" class="text-center text-body-secondary py-4">Sin información de tiempos.</td></tr>{% endfor %}
         </tbody></table></div>

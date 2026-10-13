@@ -162,7 +162,7 @@ def _filtrar(request, queryset):
 
 def _contexto_lista(request, queryset, titulo, descripcion):
     filtrados = _filtrar(request, queryset).order_by("-fecha_llegada", "-creado_en", "-pk")
-    pagina = Paginator(filtrados, 10).get_page(request.GET.get("page"))
+    pagina = Paginator(filtrados, 5).get_page(request.GET.get("page"))
     parametros = request.GET.copy()
     parametros.pop("page", None)
     return {
@@ -339,20 +339,30 @@ def lista_procesos(request):
     rol = _rol(request.user)
     if rol in ProcesoSeleccion.Etapa.values:
         contexto["mostrar_asignaciones"] = True
-        contexto["asignaciones"] = SeguimientoEtapa.objects.filter(
+        asignaciones = SeguimientoEtapa.objects.filter(
             proceso__activo=True,
             proceso__etapa_actual=rol,
             proceso__estado__in=[ProcesoSeleccion.Estado.EN_CURSO, ProcesoSeleccion.Estado.LISTO_CONTRATACION],
             etapa=rol,
             fin__isnull=True,
-        ).select_related("proceso").order_by("fecha_limite")
-        contexto["historial_terminados"] = _procesos_visibles(
+        ).select_related("proceso").order_by("fecha_limite", "pk")
+        contexto["asignaciones"] = Paginator(asignaciones, 5).get_page(request.GET.get("asignaciones_page"))
+        contexto["asignaciones_paginas"] = _opciones_paginacion(contexto["asignaciones"])
+        parametros_asignaciones = request.GET.copy()
+        parametros_asignaciones.pop("asignaciones_page", None)
+        contexto["asignaciones_querystring"] = parametros_asignaciones.urlencode()
+        historial_terminados = _procesos_visibles(
             request.user,
             ProcesoSeleccion.objects.filter(
                 activo=True,
                 estado__in=[ProcesoSeleccion.Estado.RECHAZADO, ProcesoSeleccion.Estado.CONTRATADO],
             ),
-        ).order_by("-actualizado_en")[:10]
+        ).order_by("-actualizado_en", "-pk")
+        contexto["historial_terminados"] = Paginator(historial_terminados, 5).get_page(request.GET.get("historial_page"))
+        contexto["historial_paginas"] = _opciones_paginacion(contexto["historial_terminados"])
+        parametros_historial = request.GET.copy()
+        parametros_historial.pop("historial_page", None)
+        contexto["historial_querystring"] = parametros_historial.urlencode()
     return render(request, "procesos/lista.html", contexto)
 
 
@@ -465,6 +475,12 @@ def trazabilidad(request):
     )
     if cuello_botella:
         cuello_botella["es_cuello_botella"] = True
+    mayor_promedio = max((metrica["promedio_horas"] or 0 for metrica in metricas), default=0)
+    for metrica in metricas:
+        metrica["barra_porcentaje"] = (
+            round(metrica["promedio_horas"] * 100 / mayor_promedio)
+            if metrica["promedio_horas"] is not None and mayor_promedio else 0
+        )
 
     parametros = request.GET.copy()
     parametros.pop("page", None)
@@ -492,7 +508,7 @@ def trazabilidad(request):
             volver_a,
         )
 
-    pagina = Paginator(procesos, 10).get_page(request.GET.get("page"))
+    pagina = Paginator(procesos, 5).get_page(request.GET.get("page"))
     return render(request, "procesos/trazabilidad.html", {
         "formulario_filtros": formulario,
         "procesos": pagina,
@@ -518,7 +534,7 @@ def indicadores(request):
     formulario = IndicadoresFiltroForm(request.GET)
     procesos = list(_procesos_indicadores(request, formulario)) if formulario.is_valid() else []
     resumen = calcular_indicadores(procesos)
-    pagina = Paginator(procesos, 10).get_page(request.GET.get("page"))
+    pagina = Paginator(procesos, 5).get_page(request.GET.get("page"))
     parametros = request.GET.copy()
     parametros.pop("page", None)
     return render(request, "procesos/indicadores.html", {
@@ -800,11 +816,11 @@ def lista_usuarios(request):
     _exigir_gerente(request)
     usuarios = User.objects.select_related("perfil").exclude(
         perfil__rol=Perfil.Rol.SIN_ASIGNAR
-    ).order_by("perfil__rol", "first_name", "username")
+    ).order_by("-date_joined", "-pk")
     bloqueados_temporales = Q(perfil__bloqueado_hasta__gt=timezone.now())
     usuarios_activos = usuarios.filter(is_active=True).exclude(bloqueados_temporales).count()
     usuarios_bloqueados = usuarios.filter(Q(is_active=False) | bloqueados_temporales).distinct().count()
-    pagina = Paginator(usuarios, 10).get_page(request.GET.get("page"))
+    pagina = Paginator(usuarios, 5).get_page(request.GET.get("page"))
     for usuario in pagina.object_list:
         usuario.plazo_gestion_dias = PLAZOS_ETAPA_DIAS.get(usuario.perfil.rol)
     return render(request, "procesos/usuarios_lista.html", {

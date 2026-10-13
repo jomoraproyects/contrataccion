@@ -61,7 +61,7 @@ def calcular_indicadores(procesos):
             "etiqueta": f"{mes:02d}/{anio}",
             "cantidad": cantidad,
         }
-        for (anio, mes), cantidad in sorted(por_mes_contador.items())
+        for (anio, mes), cantidad in sorted(por_mes_contador.items(), reverse=True)[:5]
     ]
 
     metricas_etapa = []
@@ -85,11 +85,39 @@ def calcular_indicadores(procesos):
         [item for item in abiertos if not item.esta_vencido and item.dias_restantes <= 1],
         key=lambda item: item.fecha_limite,
     )
-    vacantes = [
-        {"vacante": vacante, "cantidad": cantidad}
-        for vacante, cantidad in Counter(p.vacante.strip() for p in procesos).most_common(10)
+    conteo_vacantes = Counter()
+    nombres_vacantes = {}
+    for proceso in procesos:
+        nombre = proceso.vacante.strip()
+        clave = nombre.casefold()
+        conteo_vacantes[clave] += 1
+        nombres_vacantes.setdefault(clave, nombre)
+    todas_vacantes = [
+        {"vacante": nombres_vacantes[clave], "cantidad": cantidad}
+        for clave, cantidad in conteo_vacantes.most_common()
     ]
+    vacantes = todas_vacantes[:5]
+    # Porcentajes enteros para un gráfico SVG sin dependencias de JavaScript.
+    distribucion = []
+    inicio = 0
+    for vacante in vacantes[:4]:
+        porcentaje = round(vacante["cantidad"] * 100 / len(procesos)) if procesos else 0
+        distribucion.append({**vacante, "porcentaje": porcentaje, "inicio": inicio, "resto": 100 - porcentaje})
+        inicio += porcentaje
+    if len(todas_vacantes) > 4:
+        cantidad = sum(item["cantidad"] for item in todas_vacantes[4:])
+        distribucion.append({"vacante": "Otras vacantes", "cantidad": cantidad, "porcentaje": max(0, 100 - inicio), "inicio": inicio, "resto": min(100, inicio)})
+    elif distribucion:
+        distribucion[-1]["porcentaje"] += 100 - inicio
+        distribucion[-1]["resto"] = 100 - distribucion[-1]["porcentaje"]
     promedios_etapa = [item["promedio_horas"] for item in metricas_etapa if item["promedio_horas"] is not None]
+    max_promedio_horas = max([1, *promedios_etapa])
+    for item in metricas_etapa:
+        item["barra_porcentaje"] = round(item["promedio_horas"] * 100 / max_promedio_horas) if item["promedio_horas"] is not None else 0
+    area_mas_demorada = max(
+        (item for item in metricas_etapa if item["promedio_horas"] is not None),
+        key=lambda item: item["promedio_horas"], default=None,
+    )
 
     return {
         "total": len(procesos),
@@ -103,10 +131,13 @@ def calcular_indicadores(procesos):
         "por_mes": meses,
         "max_por_mes": max((item["cantidad"] for item in meses), default=1),
         "por_etapa": metricas_etapa,
-        "max_promedio_horas": max([1, *promedios_etapa]),
+        "max_promedio_horas": max_promedio_horas,
         "area_mas_retrasos": area_mas_retrasos,
+        "area_mas_demorada": area_mas_demorada,
         "proximos_vencer": proximos_vencer,
         "vacantes": vacantes,
+        "vacante_mas_candidatos": todas_vacantes[0] if todas_vacantes else None,
+        "distribucion_vacantes": distribucion,
         "max_vacantes": max((item["cantidad"] for item in vacantes), default=1),
     }
 
