@@ -89,6 +89,7 @@ def calcular_indicadores(procesos):
         {"vacante": vacante, "cantidad": cantidad}
         for vacante, cantidad in Counter(p.vacante.strip() for p in procesos).most_common(10)
     ]
+    promedios_etapa = [item["promedio_horas"] for item in metricas_etapa if item["promedio_horas"] is not None]
 
     return {
         "total": len(procesos),
@@ -100,10 +101,13 @@ def calcular_indicadores(procesos):
         "porcentaje_contratados": round(contratados * 100 / finalizados) if finalizados else 0,
         "porcentaje_rechazados": round(rechazados * 100 / finalizados) if finalizados else 0,
         "por_mes": meses,
+        "max_por_mes": max((item["cantidad"] for item in meses), default=1),
         "por_etapa": metricas_etapa,
+        "max_promedio_horas": max([1, *promedios_etapa]),
         "area_mas_retrasos": area_mas_retrasos,
         "proximos_vencer": proximos_vencer,
         "vacantes": vacantes,
+        "max_vacantes": max((item["cantidad"] for item in vacantes), default=1),
     }
 
 
