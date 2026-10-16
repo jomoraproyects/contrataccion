@@ -1176,6 +1176,57 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(pdf["Content-Type"], "application/pdf")
         self.assertTrue(pdf.content.startswith(b"%PDF"))
 
+    def test_reportes_incluyen_etapa_y_motivo_del_rechazo(self):
+        from io import BytesIO
+
+        from openpyxl import load_workbook
+        from reportlab.lib.styles import getSampleStyleSheet
+
+        from .reportes import _detalle_rechazos_pdf
+
+        motivo = "No apto en entrevista de validación"
+        self.proceso.registrar_decision(
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, motivo,
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        filtros = {"estado": ProcesoSeleccion.Estado.RECHAZADO}
+
+        excel = self.client.get(reverse("procesos:exportar_indicadores", args=["xlsx"]), filtros)
+        self.assertEqual(excel.status_code, 200)
+        hoja = load_workbook(BytesIO(excel.content), read_only=True, data_only=True)["Candidatos"]
+        self.assertEqual(hoja["H1"].value, "Etapa de rechazo")
+        self.assertEqual(hoja["I1"].value, "Motivo de rechazo")
+        self.assertEqual(hoja["H2"].value, "Talento Humano")
+        self.assertEqual(hoja["I2"].value, motivo)
+
+        traza = self.client.get(reverse("procesos:trazabilidad"), {**filtros, "exportar": "xlsx"})
+        self.assertEqual(traza.status_code, 200)
+        hoja_traza = load_workbook(BytesIO(traza.content), read_only=True, data_only=True)["Candidatos"]
+        self.assertEqual(hoja_traza["K2"].value, "Talento Humano")
+        self.assertEqual(hoja_traza["L2"].value, motivo)
+
+        bloques = _detalle_rechazos_pdf([self.proceso], getSampleStyleSheet())
+        self.assertTrue(any(motivo in getattr(bloque, "text", "") for bloque in bloques))
+        for url in (
+            reverse("procesos:exportar_indicadores", args=["pdf"]),
+            reverse("procesos:trazabilidad"),
+        ):
+            parametros = {**filtros, "exportar": "pdf"} if url.endswith("/trazabilidad/") else filtros
+            pdf = self.client.get(url, parametros)
+            self.assertEqual(pdf.status_code, 200)
+            self.assertTrue(pdf.content.startswith(b"%PDF"))
+
+    def test_reportes_no_atribuyen_rechazo_a_candidato_en_curso(self):
+        from io import BytesIO
+
+        from openpyxl import load_workbook
+
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        excel = self.client.get(reverse("procesos:exportar_indicadores", args=["xlsx"]))
+        hoja = load_workbook(BytesIO(excel.content), read_only=True, data_only=True)["Candidatos"]
+        self.assertEqual(hoja["H2"].value, "No aplica")
+        self.assertEqual(hoja["I2"].value, "No aplica")
+
     def test_trazabilidad_exporta_excel_y_pdf_con_los_filtros(self):
         from io import BytesIO
         from openpyxl import load_workbook

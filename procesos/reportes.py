@@ -147,6 +147,32 @@ def _texto_excel(valor):
     return f"'{texto}" if texto.startswith(("=", "+", "-", "@")) else texto
 
 
+def _datos_rechazo(proceso):
+    if proceso.estado != ProcesoSeleccion.Estado.RECHAZADO:
+        return "No aplica", "No aplica"
+    return proceso.etapa_rechazo, proceso.motivo_rechazo
+
+
+def _detalle_rechazos_pdf(procesos, estilos):
+    from reportlab.lib.units import cm
+    from reportlab.platypus import Paragraph, Spacer
+
+    rechazados = [proceso for proceso in procesos if proceso.estado == ProcesoSeleccion.Estado.RECHAZADO]
+    if not rechazados:
+        return []
+    contenido = [Spacer(1, 0.35 * cm), Paragraph("Candidatos rechazados: etapa y motivo", estilos["Heading2"])]
+    for proceso in rechazados:
+        etapa, motivo = _datos_rechazo(proceso)
+        motivo_seguro = escape(motivo).replace("\r\n", "\n").replace("\n", "<br/>")
+        contenido.extend([
+            Paragraph(f"<b>{escape(proceso.nombre_completo)}</b> — {escape(proceso.cedula)}", estilos["BodyText"]),
+            Paragraph(f"<b>Etapa de rechazo:</b> {escape(etapa)}", estilos["BodyText"]),
+            Paragraph(f"<b>Motivo:</b> {motivo_seguro}", estilos["BodyText"]),
+            Spacer(1, 0.25 * cm),
+        ])
+    return contenido
+
+
 def exportar_excel(procesos, indicadores, rango):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
@@ -157,8 +183,10 @@ def exportar_excel(procesos, indicadores, rango):
     hoja.append([
         "Candidato", "Cédula", "Celular", "Vacante",
         "Fecha de llegada de la hoja de vida", "Etapa actual", "Estado",
+        "Etapa de rechazo", "Motivo de rechazo",
     ])
     for proceso in procesos:
+        etapa_rechazo, motivo_rechazo = _datos_rechazo(proceso)
         hoja.append([
             _texto_excel(proceso.nombre_completo),
             _texto_excel(proceso.cedula),
@@ -167,6 +195,8 @@ def exportar_excel(procesos, indicadores, rango):
             proceso.fecha_llegada,
             proceso.get_etapa_actual_display(),
             proceso.get_estado_display(),
+            _texto_excel(etapa_rechazo),
+            _texto_excel(motivo_rechazo),
         ])
     for celda in hoja["E"][1:]:
         celda.number_format = "yyyy-mm-dd"
@@ -231,6 +261,7 @@ def exportar_pdf(procesos, indicadores, rango):
     )
     tabla.setStyle(_estilo_tabla_pdf(colors))
     contenido.append(tabla)
+    contenido.extend(_detalle_rechazos_pdf(procesos, estilos))
     documento.build(contenido)
     return salida.getvalue()
 
@@ -263,9 +294,10 @@ def exportar_trazabilidad_excel(procesos, metricas, resumen, filtros):
     hoja_candidatos.append([
         "ID", "Candidato", "Cédula", "Vacante o área", "Fecha de llegada",
         "Etapa actual", "Estado", "Tiempo total hábil (h)", "Etapa de mayor demora",
-        "Etapas fuera de tiempo",
+        "Etapas fuera de tiempo", "Etapa de rechazo", "Motivo de rechazo",
     ])
     for proceso in procesos:
+        etapa_rechazo, motivo_rechazo = _datos_rechazo(proceso)
         hoja_candidatos.append([
             proceso.pk,
             _texto_excel(proceso.nombre_completo),
@@ -277,6 +309,8 @@ def exportar_trazabilidad_excel(procesos, metricas, resumen, filtros):
             proceso.traza_total_horas,
             proceso.traza_mas_lenta.get_etapa_display() if proceso.traza_mas_lenta else "-",
             proceso.traza_fuera_tiempo,
+            _texto_excel(etapa_rechazo),
+            _texto_excel(motivo_rechazo),
         ])
     for celda in hoja_candidatos["E"][1:]:
         celda.number_format = "yyyy-mm-dd"
@@ -408,6 +442,7 @@ def exportar_trazabilidad_pdf(procesos, metricas, resumen, filtros):
     )
     tabla_procesos.setStyle(_estilo_tabla_pdf(colors))
     contenido.extend([tabla_procesos, Spacer(1, 0.4 * cm)])
+    contenido.extend(_detalle_rechazos_pdf(procesos, estilos))
 
     contenido.append(Paragraph("Detalle de etapas", estilos["Heading2"]))
     filas_etapas = [["Candidato", "Etapa", "Plazo", "Inicio", "Finalización", "Tiempo", "Resultado", "Cumplimiento"]]
