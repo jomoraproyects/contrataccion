@@ -768,20 +768,49 @@ class FlujoProcesoTests(TestCase):
                 creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
             )
 
-    def test_permite_nueva_postulacion_cuando_el_proceso_anterior_finalizo(self):
+    def test_nuevo_candidato_rechazado_se_bloquea_con_etapa_y_motivo(self):
         self.proceso.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa"
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "Antecedentes sin validar"
         )
         self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
         response = self.client.post(reverse("procesos:crear"), {
             "nombre": "Ana", "apellidos": "Pérez", "cedula": "12345",
             "celular": "3009876543", "fecha_llegada": date.today().isoformat(), "vacante": "Ventas",
         })
-        self.assertRedirects(response, reverse("procesos:detalle", args=[2]))
-        self.assertEqual(ProcesoSeleccion.objects.filter(cedula="12345").count(), 2)
-        procesos = list(ProcesoSeleccion.objects.filter(cedula="12345").order_by("pk"))
-        self.assertEqual(procesos[0].candidato_id, procesos[1].candidato_id)
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, "fue rechazada en Talento Humano")
+        self.assertContains(response, "Antecedentes sin validar")
+        self.assertEqual(ProcesoSeleccion.objects.filter(cedula="12345").count(), 1)
         self.assertEqual(Candidato.objects.filter(cedula="12345").count(), 1)
+
+    def test_nuevo_candidato_con_proceso_contratado_tambien_se_bloquea(self):
+        for rol in (
+            Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA,
+            Perfil.Rol.SEGURIDAD, Perfil.Rol.CONTRATACION,
+        ):
+            self.proceso.registrar_decision(self.usuarios[rol], Decision.Resultado.APROBADO, "Apto")
+        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        response = self.client.post(reverse("procesos:crear"), {
+            "nombre": "Ana", "apellidos": "Pérez", "cedula": "12345",
+            "celular": "3009876543", "fecha_llegada": date.today().isoformat(), "vacante": "Ventas",
+        })
+        self.assertContains(response, "ya tiene un proceso registrado")
+        self.assertContains(response, "Contratado")
+        self.assertEqual(ProcesoSeleccion.objects.filter(cedula="12345").count(), 1)
+
+    def test_bloqueo_de_nuevos_candidatos_no_impide_edicion_de_gerencia(self):
+        self.proceso.registrar_decision(
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No apta",
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        response = self.client.post(reverse("procesos:proceso_editar", args=[self.proceso.pk]), {
+            "nombre": "Ana María", "apellidos": "Pérez", "cedula": "12345",
+            "celular": "3001234567", "fecha_llegada": date.today().isoformat(),
+            "vacante": "Contabilidad", "motivo_cambio": "Corrección del nombre registrado",
+        })
+        self.assertRedirects(response, reverse("procesos:detalle", args=[self.proceso.pk]))
+        self.proceso.refresh_from_db()
+        self.assertEqual(self.proceso.nombre, "Ana María")
 
     def test_vacante_nueva_se_guarda_normalizada(self):
         self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
@@ -803,6 +832,28 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(datos["nombre"], "Ana")
         self.assertEqual(datos["cantidad_procesos"], 1)
         self.assertEqual(datos["ultimo_proceso"]["vacante"], "Contabilidad")
+        self.assertIsNone(datos["ultimo_rechazo"])
+
+    def test_consulta_cedula_muestra_el_rechazo_aunque_exista_otro_proceso(self):
+        self.proceso.registrar_decision(
+            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO,
+            "No aprobó la validación legal",
+        )
+        ProcesoSeleccion.objects.create(
+            nombre="Ana", apellidos="Pérez", cedula="12345", celular="3001234567",
+            fecha_llegada=date.today(), vacante="Ventas",
+            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+        )
+        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        response = self.client.get(reverse("procesos:consultar_candidato_cedula"), {"cedula": "12.345"})
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("no-cache", response["Cache-Control"])
+        datos = response.json()
+        self.assertTrue(datos["proceso_abierto"])
+        self.assertEqual(datos["ultimo_rechazo"], {
+            "vacante": "Contabilidad", "etapa": "Talento Humano",
+            "motivo": "No aprobó la validación legal",
+        })
 
     def test_consulta_cedula_solo_es_para_contratacion(self):
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
@@ -814,6 +865,7 @@ class FlujoProcesoTests(TestCase):
         response = self.client.get(reverse("procesos:crear"))
         self.assertContains(response, "data-candidate-lookup-url")
         self.assertContains(response, "data-candidate-match")
+        self.assertContains(response, "data-candidate-rejection-reason")
 
     def test_consulta_cedula_rechaza_caracteres_no_permitidos_y_post(self):
         self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])

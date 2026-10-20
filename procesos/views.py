@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
+from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
 from .forms import (
@@ -24,6 +25,7 @@ from .forms import (
     EditarUsuarioOperativoForm,
     EliminarProcesoForm,
     IndicadoresFiltroForm,
+    NuevoProcesoForm,
     ProcesoForm,
     TrazabilidadFiltroForm,
     UsuarioOperativoForm,
@@ -293,6 +295,7 @@ def salud(request):
 
 
 @login_required
+@never_cache
 @require_GET
 def consultar_candidato_cedula(request):
     """Permite a Contratación reutilizar una identidad sin duplicar la cédula."""
@@ -304,8 +307,9 @@ def consultar_candidato_cedula(request):
     candidato = Candidato.objects.filter(cedula=cedula).first()
     if not candidato:
         return JsonResponse({"encontrado": False})
-    procesos = candidato.procesos.order_by("-creado_en")
+    procesos = candidato.procesos.order_by("-creado_en", "-pk")
     ultimo = procesos.first()
+    ultimo_rechazo = procesos.filter(estado=ProcesoSeleccion.Estado.RECHAZADO).first()
     abierto = procesos.filter(
         activo=True,
         estado__in=[ProcesoSeleccion.Estado.EN_CURSO, ProcesoSeleccion.Estado.LISTO_CONTRATACION],
@@ -322,6 +326,11 @@ def consultar_candidato_cedula(request):
             "estado": ultimo.get_estado_display(),
             "fecha": ultimo.fecha_llegada.strftime("%d/%m/%Y"),
         } if ultimo else None,
+        "ultimo_rechazo": {
+            "vacante": ultimo_rechazo.vacante,
+            "etapa": ultimo_rechazo.etapa_rechazo,
+            "motivo": ultimo_rechazo.motivo_rechazo,
+        } if ultimo_rechazo else None,
     })
 
 
@@ -626,7 +635,7 @@ def lista_archivados(request):
 @login_required
 def crear_proceso(request):
     _exigir_roles(request, Perfil.Rol.CONTRATACION)
-    form = ProcesoForm(request.POST or None)
+    form = NuevoProcesoForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         proceso = form.save(commit=False)
         proceso.creado_por = request.user

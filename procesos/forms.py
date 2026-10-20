@@ -62,6 +62,29 @@ class ProcesoForm(forms.ModelForm):
         return fecha
 
 
+class NuevoProcesoForm(ProcesoForm):
+    """Impide registrar de nuevo una cédula al crear un candidato."""
+
+    def clean_cedula(self):
+        cedula = normalizar_cedula(self.cleaned_data["cedula"])
+        anteriores = ProcesoSeleccion.objects.filter(cedula=cedula).order_by("-creado_en", "-pk")
+        rechazo = anteriores.filter(estado=ProcesoSeleccion.Estado.RECHAZADO).first()
+        if rechazo:
+            raise forms.ValidationError(
+                f"Esta persona ya estuvo en el proceso para {rechazo.vacante} y fue rechazada "
+                f"en {rechazo.etapa_rechazo}. Motivo: {rechazo.motivo_rechazo}. "
+                "No se puede crear otro proceso con esta cédula."
+            )
+        cedula = super().clean_cedula()
+        ultimo = anteriores.first()
+        if ultimo:
+            raise forms.ValidationError(
+                f"Esta cédula ya tiene un proceso registrado para {ultimo.vacante} "
+                f"({ultimo.get_estado_display()}). No se puede crear otro proceso con esta cédula."
+            )
+        return cedula
+
+
 class EditarProcesoGerenciaForm(ProcesoForm):
     motivo_cambio = forms.CharField(
         label="Motivo de la actualización",

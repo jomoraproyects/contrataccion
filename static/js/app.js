@@ -97,43 +97,83 @@
   if (formularioCandidato) {
     const campoCedula = document.getElementById("id_cedula");
     const aviso = formularioCandidato.querySelector("[data-candidate-match]");
+    const resumen = aviso.querySelector("[data-candidate-summary]");
+    const rechazo = aviso.querySelector("[data-candidate-rejection]");
+    const contextoRechazo = aviso.querySelector("[data-candidate-rejection-context]");
+    const motivoRechazo = aviso.querySelector("[data-candidate-rejection-reason]");
+    const botonCrear = formularioCandidato.querySelector('button[type="submit"]');
     let consultaActual = 0;
+    let temporizadorConsulta;
+
+    function limpiarAviso() {
+      aviso.classList.add("d-none");
+      aviso.classList.remove("alert-danger", "alert-info");
+      rechazo.classList.add("d-none");
+      resumen.textContent = "";
+      contextoRechazo.textContent = "";
+      motivoRechazo.textContent = "";
+      botonCrear.disabled = false;
+    }
 
     async function consultarCedula() {
       const cedula = (campoCedula.value || "").replace(/[.\s-]/g, "");
       const numeroConsulta = ++consultaActual;
-      aviso.classList.add("d-none");
-      aviso.textContent = "";
-      aviso.classList.remove("alert-danger", "alert-info");
+      limpiarAviso();
       if (!/^\d{5,15}$/.test(cedula)) return;
+      botonCrear.disabled = true;
       try {
         const respuesta = await fetch(
           formularioCandidato.dataset.candidateLookupUrl + "?cedula=" + encodeURIComponent(cedula),
           {headers: {"Accept": "application/json"}, credentials: "same-origin"}
         );
-        if (!respuesta.ok || numeroConsulta !== consultaActual) return;
+        if (numeroConsulta !== consultaActual) return;
+        if (!respuesta.ok) {
+          botonCrear.disabled = false;
+          return;
+        }
         const datos = await respuesta.json();
-        if (!datos.encontrado) return;
-        document.getElementById("id_nombre").value = datos.nombre;
-        document.getElementById("id_apellidos").value = datos.apellidos;
-        document.getElementById("id_celular").value = datos.celular;
+        if (numeroConsulta !== consultaActual) return;
+        if (!datos.encontrado) {
+          botonCrear.disabled = false;
+          return;
+        }
+        const persona = datos.nombre + " " + datos.apellidos;
         const ultimo = datos.ultimo_proceso;
-        if (datos.proceso_abierto) {
-          aviso.classList.add("alert-danger");
-          aviso.textContent = "Esta persona ya está registrada y tiene un proceso activo. Debe finalizarlo o desactivarlo antes de crear otro.";
+        const rechazoAnterior = datos.ultimo_rechazo;
+        aviso.classList.add("alert-danger");
+        if (rechazoAnterior) {
+          resumen.textContent = persona + " ya estuvo en un proceso y fue rechazada. No se puede crear otro proceso con esta cédula.";
+          contextoRechazo.textContent = "Vacante: " + rechazoAnterior.vacante + " · Se quedó en: " + rechazoAnterior.etapa + ".";
+          motivoRechazo.textContent = rechazoAnterior.motivo;
+          rechazo.classList.remove("d-none");
+        } else if (datos.proceso_abierto) {
+          resumen.textContent = persona + " ya tiene un proceso activo. No se puede crear otro proceso con esta cédula.";
         } else {
-          aviso.classList.add("alert-info");
-          aviso.textContent = "Persona ya registrada. Se recuperaron sus datos. Tiene " + datos.cantidad_procesos +
-            " proceso(s) anterior(es)" + (ultimo ? ". Último: " + ultimo.vacante + " · " + ultimo.estado + " · " + ultimo.fecha + "." : ".");
+          resumen.textContent = persona + " ya tiene un proceso registrado" +
+            (ultimo ? " para " + ultimo.vacante + " (" + ultimo.estado + ")" : "") +
+            ". No se puede crear otro proceso con esta cédula.";
         }
         aviso.classList.remove("d-none");
       } catch (error) {
+        if (numeroConsulta === consultaActual) botonCrear.disabled = false;
         // La validación del servidor seguirá protegiendo el registro si falla la consulta visual.
       }
     }
 
-    campoCedula.addEventListener("change", consultarCedula);
-    campoCedula.addEventListener("blur", consultarCedula);
+    campoCedula.addEventListener("input", function () {
+      ++consultaActual;
+      window.clearTimeout(temporizadorConsulta);
+      limpiarAviso();
+      const cedula = (campoCedula.value || "").replace(/[.\s-]/g, "");
+      if (/^\d{5,15}$/.test(cedula)) {
+        botonCrear.disabled = true;
+        temporizadorConsulta = window.setTimeout(consultarCedula, 350);
+      }
+    });
+    campoCedula.addEventListener("blur", function () {
+      window.clearTimeout(temporizadorConsulta);
+      consultarCedula();
+    });
   }
 
   const resumenError = document.querySelector("[data-error-summary]");
