@@ -83,10 +83,10 @@ def _procesos_visibles(usuario, queryset=None):
     rol = _rol(usuario)
     if rol == Perfil.Rol.GERENTE:
         return queryset
+    if rol == Perfil.Rol.VINCULACION:
+        return queryset.filter(activo=True, creado_por=usuario)
     if rol == Perfil.Rol.CONTRATACION:
-        return queryset.filter(activo=True).filter(
-            Q(creado_por=usuario) | Q(etapa_actual=Perfil.Rol.CONTRATACION)
-        ).distinct()
+        return queryset.filter(activo=True, etapa_actual=ProcesoSeleccion.Etapa.CONTRATACION)
     if rol in (Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA, Perfil.Rol.SEGURIDAD):
         return queryset.filter(activo=True).filter(
             Q(etapa_actual=rol, estado__in=[ProcesoSeleccion.Estado.EN_CURSO, ProcesoSeleccion.Estado.LISTO_CONTRATACION])
@@ -176,7 +176,7 @@ def _contexto_lista(request, queryset, titulo, descripcion):
         "descripcion": descripcion,
         "estados": ProcesoSeleccion.Estado.choices,
         "etapas": ProcesoSeleccion.Etapa.choices,
-        "puede_crear": _rol(request.user) == Perfil.Rol.CONTRATACION,
+        "puede_crear": _rol(request.user) == Perfil.Rol.VINCULACION,
     }
 
 
@@ -206,7 +206,8 @@ def _opciones_paginacion(pagina):
 def _rango_indicadores(formulario):
     desde = formulario.cleaned_data.get("fecha_desde")
     hasta = formulario.cleaned_data.get("fecha_hasta")
-    partes = []
+    tipo_periodo = formulario.cleaned_data.get("periodo")
+    partes = ["Periodo: " + tipo_periodo.capitalize()] if tipo_periodo in ("semanal", "mensual", "anual") else []
     if desde and hasta:
         partes.append(f"Fecha: {desde.strftime('%d/%m/%Y')} a {hasta.strftime('%d/%m/%Y')}")
     elif desde:
@@ -298,8 +299,8 @@ def salud(request):
 @never_cache
 @require_GET
 def consultar_candidato_cedula(request):
-    """Permite a Contratación reutilizar una identidad sin duplicar la cédula."""
-    _exigir_roles(request, Perfil.Rol.CONTRATACION)
+    """Informa a Vinculación del historial al intentar registrar una cédula."""
+    _exigir_roles(request, Perfil.Rol.VINCULACION)
     try:
         cedula = normalizar_cedula(request.GET.get("cedula", ""))
     except ValidationError:
@@ -330,6 +331,7 @@ def consultar_candidato_cedula(request):
             "vacante": ultimo_rechazo.vacante,
             "etapa": ultimo_rechazo.etapa_rechazo,
             "motivo": ultimo_rechazo.motivo_rechazo,
+            "requisitos": ultimo_rechazo.requisitos_rechazo,
         } if ultimo_rechazo else None,
     })
 
@@ -539,10 +541,10 @@ def trazabilidad(request):
 
 @login_required
 def indicadores(request):
-    _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
+    _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.VINCULACION, Perfil.Rol.CONTRATACION)
     formulario = IndicadoresFiltroForm(request.GET)
     procesos = list(_procesos_indicadores(request, formulario)) if formulario.is_valid() else []
-    resumen = calcular_indicadores(procesos)
+    resumen = calcular_indicadores(procesos, formulario.cleaned_data if formulario.is_valid() else None)
     pagina = Paginator(procesos, 5).get_page(request.GET.get("page"))
     parametros = request.GET.copy()
     parametros.pop("page", None)
@@ -561,12 +563,12 @@ def indicadores(request):
 @login_required
 @require_GET
 def exportar_indicadores(request, formato):
-    _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
+    _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.VINCULACION, Perfil.Rol.CONTRATACION)
     formulario = IndicadoresFiltroForm(request.GET)
     if not formulario.is_valid():
         return HttpResponseBadRequest("El rango de fechas no es válido.")
     procesos = list(_procesos_indicadores(request, formulario))
-    resumen = calcular_indicadores(procesos)
+    resumen = calcular_indicadores(procesos, formulario.cleaned_data)
     rango = _rango_indicadores(formulario)
     parametros = request.GET.urlencode()
     volver_a = reverse("procesos:indicadores")
@@ -602,7 +604,7 @@ def marcar_notificaciones_leidas(request):
 
 @login_required
 def lista_contratacion(request):
-    _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
+    _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.VINCULACION, Perfil.Rol.CONTRATACION)
     qs = _procesos_visibles(request.user, ProcesoSeleccion.objects.filter(activo=True)).filter(
         Q(estado=ProcesoSeleccion.Estado.LISTO_CONTRATACION) | Q(estado=ProcesoSeleccion.Estado.CONTRATADO)
     ).prefetch_related("seguimientos")
@@ -613,7 +615,7 @@ def lista_contratacion(request):
 
 @login_required
 def lista_rechazados(request):
-    _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
+    _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.VINCULACION, Perfil.Rol.CONTRATACION)
     qs = _procesos_visibles(request.user, ProcesoSeleccion.objects.filter(
         activo=True, estado=ProcesoSeleccion.Estado.RECHAZADO
     )).prefetch_related("decisiones", "cambios_gerencia")
@@ -634,7 +636,7 @@ def lista_archivados(request):
 
 @login_required
 def crear_proceso(request):
-    _exigir_roles(request, Perfil.Rol.CONTRATACION)
+    _exigir_roles(request, Perfil.Rol.VINCULACION)
     form = NuevoProcesoForm(request.POST or None)
     if request.method == "POST" and form.is_valid():
         proceso = form.save(commit=False)
@@ -661,13 +663,16 @@ def detalle_proceso(request, pk):
     if not proceso.activo and not es_gerente:
         raise PermissionDenied("Este candidato está desactivado.")
     puede_decidir = proceso.puede_decidir(request.user)
-    form = DecisionForm(request.POST or None) if puede_decidir else None
+    form = DecisionForm(request.POST or None, etapa=proceso.etapa_actual) if puede_decidir else None
     if request.method == "POST":
         if not puede_decidir:
             raise PermissionDenied("No tiene permiso para tomar esta decisión.")
         if form.is_valid():
             try:
-                proceso.registrar_decision(request.user, form.cleaned_data["resultado"], form.cleaned_data["observacion"])
+                proceso.registrar_decision(
+                    request.user, form.cleaned_data["resultado"], form.cleaned_data["observacion"],
+                    verificaciones=form.cleaned_data["verificaciones"],
+                )
             except ValidationError as exc:
                 form.add_error(None, exc)
             else:
@@ -838,6 +843,9 @@ def lista_usuarios(request):
         "paginas": _opciones_paginacion(pagina),
         "usuarios_activos": usuarios_activos,
         "usuarios_bloqueados": usuarios_bloqueados,
+        "falta_usuario_contratacion": not usuarios.filter(
+            perfil__rol=Perfil.Rol.CONTRATACION, is_active=True,
+        ).exists(),
     })
 
 
@@ -897,7 +905,7 @@ def editar_usuario(request, pk):
     form = EditarUsuarioOperativoForm(request.POST or None, instance=usuario)
     if request.method == "POST" and form.is_valid():
         usuario = form.save()
-        if usuario.perfil.rol == Perfil.Rol.CONTRATACION and not usuario.is_active:
+        if usuario.perfil.rol in (Perfil.Rol.VINCULACION, Perfil.Rol.CONTRATACION) and not usuario.is_active:
             usuario.is_active = True
             usuario.save(update_fields=["is_active"])
         if usuario.is_active:
@@ -913,7 +921,7 @@ def editar_usuario(request, pk):
         "form": form,
         "usuario_objetivo": usuario,
         "titulo": "Editar usuario",
-        "descripcion": "Actualice sus datos o cambie el área. Gerencia y Contratación no pueden bloquearse manualmente.",
+        "descripcion": "Actualice sus datos o cambie el área. Gerencia, Vinculación y Contratación no pueden bloquearse manualmente.",
         "texto_boton": "Guardar cambios",
         "confirmar_accion": True,
         "confirmacion_mensaje": "Se modificarán los datos, el rol o el acceso de esta cuenta.",

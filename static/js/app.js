@@ -40,6 +40,57 @@
     });
   });
 
+  document.querySelectorAll("form[data-stage-checklist]").forEach((formulario) => {
+    const filas = Array.from(formulario.querySelectorAll("[data-checklist-row]"));
+    const aprobar = formulario.querySelector('input[name="resultado"][value="APROBADO"]');
+    const rechazar = formulario.querySelector('input[name="resultado"][value="RECHAZADO"]');
+    const observacion = formulario.querySelector('textarea[name="observacion"]');
+    const boton = formulario.querySelector('button[type="submit"]');
+    const etiqueta = boton.querySelector("[data-submit-label]");
+    const estado = formulario.querySelector("[data-checklist-status]");
+
+    function actualizarVerificacion() {
+      const seleccionados = filas.map((fila) => fila.querySelector('input[type="radio"]:checked'));
+      const revisados = seleccionados.filter(Boolean).length;
+      const fallos = seleccionados.filter((input) => input && input.value === "NO_CUMPLE").length;
+      const completa = revisados === filas.length;
+      aprobar.disabled = !completa || fallos > 0;
+      rechazar.disabled = !completa || fallos === 0;
+      aprobar.checked = completa && fallos === 0;
+      rechazar.checked = completa && fallos > 0;
+      const notaCompleta = observacion.value.trim().length >= 3;
+      boton.disabled = !completa || !notaCompleta;
+      formulario.querySelector("[data-checklist-count]").textContent = revisados + " de " + filas.length + " revisados";
+      filas.forEach((fila, index) => {
+        fila.classList.toggle("is-complete", !!seleccionados[index] && seleccionados[index].value === "CUMPLE");
+        fila.classList.toggle("is-failed", !!seleccionados[index] && seleccionados[index].value === "NO_CUMPLE");
+      });
+      const mensaje = !completa
+        ? "Falta revisar " + (filas.length - revisados) + " requisito(s). Un requisito pendiente no genera un rechazo automático."
+        : fallos
+          ? "Hay " + fallos + " requisito(s) que no cumple. Escriba la observación para registrar el rechazo."
+          : "Todos los requisitos cumplen. Escriba la observación para aprobar y continuar.";
+      if (estado.textContent !== mensaje) estado.textContent = mensaje;
+      estado.classList.toggle("is-failed", completa && fallos > 0);
+      estado.classList.toggle("is-complete", completa && fallos === 0);
+      etiqueta.textContent = !completa ? "Complete la verificación" : fallos ? "Rechazar y finalizar" : "Aprobar y continuar";
+    }
+
+    formulario.addEventListener("change", actualizarVerificacion);
+    observacion.addEventListener("input", actualizarVerificacion);
+    formulario.addEventListener("submit", function (evento) {
+      actualizarVerificacion();
+      if (boton.disabled) {
+        evento.preventDefault();
+        evento.stopImmediatePropagation();
+        const pendiente = filas.find((fila) => !fila.querySelector('input[type="radio"]:checked'));
+        if (pendiente) pendiente.querySelector("input").focus();
+        else observacion.focus();
+      }
+    });
+    actualizarVerificacion();
+  });
+
   const modalConfirmacionElemento = document.getElementById("confirmationModal");
   const modalConfirmacion = modalConfirmacionElemento && window.bootstrap
     ? new bootstrap.Modal(modalConfirmacionElemento)
@@ -100,6 +151,7 @@
     const resumen = aviso.querySelector("[data-candidate-summary]");
     const rechazo = aviso.querySelector("[data-candidate-rejection]");
     const contextoRechazo = aviso.querySelector("[data-candidate-rejection-context]");
+    const requisitosRechazo = aviso.querySelector("[data-candidate-rejection-requirements]");
     const motivoRechazo = aviso.querySelector("[data-candidate-rejection-reason]");
     const botonCrear = formularioCandidato.querySelector('button[type="submit"]');
     let consultaActual = 0;
@@ -111,6 +163,7 @@
       rechazo.classList.add("d-none");
       resumen.textContent = "";
       contextoRechazo.textContent = "";
+      requisitosRechazo.textContent = "";
       motivoRechazo.textContent = "";
       botonCrear.disabled = false;
     }
@@ -144,6 +197,9 @@
         if (rechazoAnterior) {
           resumen.textContent = persona + " ya estuvo en un proceso y fue rechazada. No se puede crear otro proceso con esta cédula.";
           contextoRechazo.textContent = "Vacante: " + rechazoAnterior.vacante + " · Se quedó en: " + rechazoAnterior.etapa + ".";
+          requisitosRechazo.textContent = rechazoAnterior.requisitos && rechazoAnterior.requisitos.length
+            ? "No cumplió: " + rechazoAnterior.requisitos.join(", ") + "."
+            : "";
           motivoRechazo.textContent = rechazoAnterior.motivo;
           rechazo.classList.remove("d-none");
         } else if (datos.proceso_abierto) {

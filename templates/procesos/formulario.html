@@ -1,10 +1,10 @@
 {% extends "base.html" %}
-{% block title %}Nuevo proceso de contratación{% endblock %}
+{% block title %}Nuevo candidato · Vinculación{% endblock %}
 {% block content %}
 <div class="mx-auto form-page">
   <a class="btn btn-outline-secondary btn-lg mb-3" href="{% url 'procesos:lista' %}">← Volver</a>
   <div class="card shadow-sm border-0"><div class="card-body p-4 p-lg-5">
-    <p class="eyebrow text-primary mb-1">Nuevo candidato</p><h1 class="h2 fw-bold">Nuevo proceso de contratación</h1><p class="fs-5 text-secondary mb-4">Complete únicamente los datos básicos del candidato.</p>
+    <p class="eyebrow text-primary mb-1">Vinculación</p><h1 class="h2 fw-bold">Registrar nuevo candidato</h1><p class="fs-5 text-secondary mb-4">Complete los datos básicos. El proceso se enviará a Talento Humano.</p>
     <form method="post" novalidate data-submit-once data-candidate-lookup-url="{% url 'procesos:consultar_candidato_cedula' %}">{% csrf_token %}
       {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
       <div class="row g-4">
@@ -15,6 +15,7 @@
         <div class="border-top mt-3 pt-3 d-none" data-candidate-rejection>
           <strong class="d-block">Rechazo anterior</strong>
           <span class="d-block" data-candidate-rejection-context></span>
+          <span class="d-block fw-semibold mt-1" data-candidate-rejection-requirements></span>
           <strong class="d-block mt-2">Motivo:</strong>
           <span class="d-block text-break" data-candidate-rejection-reason></span>
         </div>

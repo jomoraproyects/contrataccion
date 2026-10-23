@@ -11,6 +11,7 @@ from .calendario import (
     sumar_dias_habiles,
 )
 from .validacion import normalizar_cedula, normalizar_celular
+from .requisitos import CUMPLE, NO_CUMPLE, validar_verificaciones
 
 
 PLAZOS_ETAPA_DIAS = {
@@ -24,6 +25,7 @@ PLAZOS_ETAPA_DIAS = {
 class Perfil(models.Model):
     class Rol(models.TextChoices):
         SIN_ASIGNAR = "SIN_ASIGNAR", "Sin acceso asignado"
+        VINCULACION = "VINCULACION", "Vinculación"
         CONTRATACION = "CONTRATACION", "Contratación"
         RRHH = "RRHH", "Talento Humano"
         PSICOLOGIA = "PSICOLOGIA", "Psicología"
@@ -34,6 +36,17 @@ class Perfil(models.Model):
     rol = models.CharField(max_length=20, choices=Rol.choices, default=Rol.SIN_ASIGNAR, db_index=True)
     intentos_fallidos = models.PositiveSmallIntegerField(default=0)
     bloqueado_hasta = models.DateTimeField(null=True, blank=True)
+
+    @property
+    def funcion_rol(self):
+        return {
+            self.Rol.VINCULACION: "Registra candidatos y envía el proceso a Talento Humano.",
+            self.Rol.RRHH: "Valida requisitos y antecedentes.",
+            self.Rol.PSICOLOGIA: "Realiza la entrevista y evaluación psicológica.",
+            self.Rol.SEGURIDAD: "Revisa los exámenes de Seguridad y Salud en el Trabajo.",
+            self.Rol.CONTRATACION: "Recibe a los candidatos aprobados y completa la contratación.",
+            self.Rol.GERENTE: "Supervisa los procesos, los tiempos y los accesos del equipo.",
+        }.get(self.rol, "Sin función operativa asignada.")
 
     @property
     def bloqueo_seguridad_activo(self):
@@ -188,6 +201,11 @@ class ProcesoSeleccion(models.Model):
         return cambio.descripcion if cambio else "Sin motivo registrado"
 
     @property
+    def requisitos_rechazo(self):
+        decision = self.decisiones.filter(resultado=Decision.Resultado.RECHAZADO, vigente=True).first()
+        return decision.requisitos_no_cumplidos if decision else []
+
+    @property
     def duracion_total_horas(self):
         return round(sum(item.duracion_horas for item in self.seguimientos.all()), 1)
 
@@ -234,7 +252,7 @@ class ProcesoSeleccion(models.Model):
         )
 
     @transaction.atomic
-    def registrar_decision(self, usuario, resultado, observacion):
+    def registrar_decision(self, usuario, resultado, observacion, verificaciones=None):
         proceso = ProcesoSeleccion.objects.select_for_update().get(pk=self.pk)
         if not proceso.puede_decidir(usuario):
             raise ValidationError("No tiene permiso para decidir en la etapa actual.")
@@ -243,6 +261,7 @@ class ProcesoSeleccion(models.Model):
             raise ValidationError("La observación es obligatoria.")
         if resultado not in Decision.Resultado.values:
             raise ValidationError("La decisión no es válida.")
+        snapshot = validar_verificaciones(proceso.etapa_actual, resultado, verificaciones)
 
         decision = Decision.objects.create(
             proceso=proceso,
@@ -250,6 +269,7 @@ class ProcesoSeleccion(models.Model):
             resultado=resultado,
             observacion=observacion,
             decidido_por=usuario,
+            verificaciones=snapshot,
         )
         seguimiento = proceso.seguimientos.select_for_update().filter(
             etapa=proceso.etapa_actual, fin__isnull=True
@@ -291,6 +311,7 @@ class Decision(models.Model):
     etapa = models.CharField(max_length=20, choices=ProcesoSeleccion.Etapa.choices)
     resultado = models.CharField(max_length=12, choices=Resultado.choices)
     observacion = models.TextField(max_length=2000)
+    verificaciones = models.JSONField(default=dict, blank=True)
     decidido_por = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="decisiones")
     fecha = models.DateTimeField(auto_now_add=True)
     vigente = models.BooleanField(default=True)
@@ -320,6 +341,32 @@ class Decision(models.Model):
     def clean(self):
         if not self.observacion or not self.observacion.strip():
             raise ValidationError({"observacion": "La observación es obligatoria."})
+
+    @property
+    def requisitos_verificados(self):
+        """Presenta el registro original; los históricos vacíos siguen sin marcas."""
+        if not isinstance(self.verificaciones, dict) or self.verificaciones.get("version") != 1:
+            return []
+        requisitos = self.verificaciones.get("requisitos")
+        if not isinstance(requisitos, list):
+            return []
+        return [
+            {
+                "codigo": requisito.get("codigo", ""),
+                "nombre": requisito["nombre"],
+                "resultado": requisito["resultado"],
+                "cumple": requisito["resultado"] == CUMPLE,
+                "estado": "Cumple" if requisito["resultado"] == CUMPLE else "No cumple",
+            }
+            for requisito in requisitos
+            if isinstance(requisito, dict)
+            and isinstance(requisito.get("nombre"), str)
+            and requisito.get("resultado") in (CUMPLE, NO_CUMPLE)
+        ]
+
+    @property
+    def requisitos_no_cumplidos(self):
+        return [requisito["nombre"] for requisito in self.requisitos_verificados if not requisito["cumple"]]
 
     def __str__(self):
         return f"{self.proceso.nombre_completo} - {self.get_etapa_display()} - {self.get_resultado_display()}"

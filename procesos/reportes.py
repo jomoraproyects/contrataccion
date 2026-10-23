@@ -1,4 +1,5 @@
 from collections import Counter
+from datetime import timedelta
 from io import BytesIO
 from statistics import mean, median
 from xml.sax.saxutils import escape
@@ -6,7 +7,8 @@ from xml.sax.saxutils import escape
 from django.utils import timezone
 from django.db.models import Q
 
-from .models import ProcesoSeleccion, SeguimientoEtapa
+from .calendario import SEGUNDOS_JORNADA_LABORAL
+from .models import PLAZOS_ETAPA_DIAS, ProcesoSeleccion, SeguimientoEtapa
 
 
 def filtrar_procesos_por_fecha(queryset, formulario):
@@ -38,7 +40,7 @@ def filtrar_procesos_por_fecha(queryset, formulario):
     return queryset
 
 
-def calcular_indicadores(procesos):
+def calcular_indicadores(procesos, periodo=None):
     procesos = list(procesos)
     seguimientos = [item for proceso in procesos for item in proceso.seguimientos.all()]
     cerrados = [
@@ -49,6 +51,7 @@ def calcular_indicadores(procesos):
         item for item in seguimientos
         if item.fin is None and item.proceso.activo and not item.proceso.esta_finalizado
     ]
+    duraciones_cerradas = {item.pk: item.duracion_horas for item in cerrados}
 
     contratados = sum(p.estado == ProcesoSeleccion.Estado.CONTRATADO for p in procesos)
     rechazados = sum(p.estado == ProcesoSeleccion.Estado.RECHAZADO for p in procesos)
@@ -68,7 +71,8 @@ def calcular_indicadores(procesos):
     for valor, etiqueta in ProcesoSeleccion.Etapa.choices:
         cerrados_etapa = [item for item in cerrados if item.etapa == valor]
         todos_etapa = [item for item in seguimientos if item.etapa == valor and item.resultado != SeguimientoEtapa.Resultado.AJUSTADO]
-        duraciones = [item.duracion_horas for item in cerrados_etapa]
+        duraciones = [duraciones_cerradas[item.pk] for item in cerrados_etapa]
+        retrasos_cerrados = sum(item.esta_vencido for item in cerrados_etapa)
         metricas_etapa.append({
             "valor": valor,
             "etapa": etiqueta,
@@ -77,6 +81,11 @@ def calcular_indicadores(procesos):
             "finalizadas": len(cerrados_etapa),
             "abiertas": sum(item.fin is None for item in todos_etapa),
             "retrasos": sum(item.esta_vencido for item in todos_etapa),
+            "retrasos_cerrados": retrasos_cerrados,
+            "a_tiempo": len(cerrados_etapa) - retrasos_cerrados,
+            "cumplimiento_porcentaje": round((len(cerrados_etapa) - retrasos_cerrados) * 100 / len(cerrados_etapa)) if cerrados_etapa else None,
+            "plazo_dias": PLAZOS_ETAPA_DIAS[valor],
+            "plazo_horas": PLAZOS_ETAPA_DIAS[valor] * SEGUNDOS_JORNADA_LABORAL / 3600,
         })
 
     con_retrasos = [item for item in metricas_etapa if item["retrasos"]]
@@ -119,6 +128,40 @@ def calcular_indicadores(procesos):
         key=lambda item: item["promedio_horas"], default=None,
     )
 
+    # Serie mensual continua: los meses sin postulaciones aparecen como cero.
+    # Se muestran hasta doce meses para conservar etiquetas legibles en el gráfico.
+    tendencia = []
+    if por_mes_contador:
+        inicio_mes = min(anio * 12 + mes - 1 for anio, mes in por_mes_contador)
+        fin_mes = max(anio * 12 + mes - 1 for anio, mes in por_mes_contador)
+        for indice in range(max(inicio_mes, fin_mes - 11), fin_mes + 1):
+            anio, mes_cero = divmod(indice, 12)
+            mes = mes_cero + 1
+            tendencia.append({"etiqueta": f"{mes:02d}/{anio}", "cantidad": por_mes_contador[(anio, mes)]})
+    tendencia_titulo = "Procesos iniciados por mes"
+    tendencia_descripcion = "Hasta doce meses del periodo filtrado. Los meses sin candidatos aparecen en cero."
+    if periodo and periodo.get("periodo") in ("semanal", "mensual", "anual"):
+        tipo = periodo["periodo"]
+        desde, hasta = periodo["fecha_desde"], periodo["fecha_hasta"]
+        tendencia = []
+        if tipo == "anual":
+            tendencia = [{"etiqueta": f"{mes:02d}/{desde.year}", "cantidad": por_mes_contador[(desde.year, mes)]} for mes in range(1, 13)]
+            tendencia_descripcion = "Comparación de los doce meses del año seleccionado."
+        else:
+            conteo_dias = Counter(p.fecha_llegada for p in procesos)
+            cursor = desde
+            while cursor <= hasta:
+                tendencia.append({"etiqueta": cursor.strftime("%d/%m"), "cantidad": conteo_dias[cursor]})
+                cursor += timedelta(days=1)
+            tendencia_titulo = "Procesos iniciados por día"
+            tendencia_descripcion = "Candidatos recibidos cada día de la semana seleccionada." if tipo == "semanal" else "Candidatos recibidos cada día del mes seleccionado."
+    estados = [
+        {"codigo": valor, "etiqueta": etiqueta, "cantidad": sum(p.estado == valor for p in procesos)}
+        for valor, etiqueta in ProcesoSeleccion.Estado.choices
+    ]
+    total_vencidos = sum(item.esta_vencido for item in abiertos)
+    cumplimiento = round((len(cerrados) - sum(item.esta_vencido for item in cerrados)) * 100 / len(cerrados)) if cerrados else None
+
     return {
         "total": len(procesos),
         "en_curso": sum(p.estado == ProcesoSeleccion.Estado.EN_CURSO for p in procesos),
@@ -135,6 +178,18 @@ def calcular_indicadores(procesos):
         "area_mas_retrasos": area_mas_retrasos,
         "area_mas_demorada": area_mas_demorada,
         "proximos_vencer": proximos_vencer,
+        "vencidos": total_vencidos,
+        "cumplimiento_porcentaje": cumplimiento,
+        "etapas_finalizadas": len(cerrados),
+        "graficas": {
+            "estados": estados,
+            "vacantes": [{"etiqueta": item["vacante"], "cantidad": item["cantidad"]} for item in vacantes],
+            "tendencia": tendencia,
+            "tendencia_titulo": tendencia_titulo,
+            "tendencia_descripcion": tendencia_descripcion,
+            "etapas": metricas_etapa,
+            "total": len(procesos),
+        },
         "vacantes": vacantes,
         "vacante_mas_candidatos": todas_vacantes[0] if todas_vacantes else None,
         "distribucion_vacantes": distribucion,
@@ -153,6 +208,12 @@ def _datos_rechazo(proceso):
     return proceso.etapa_rechazo, proceso.motivo_rechazo
 
 
+def _requisitos_rechazo(proceso):
+    if proceso.estado != ProcesoSeleccion.Estado.RECHAZADO:
+        return "No aplica"
+    return ", ".join(proceso.requisitos_rechazo) or "Sin lista de verificación registrada"
+
+
 def _detalle_rechazos_pdf(procesos, estilos):
     from reportlab.lib.units import cm
     from reportlab.platypus import Paragraph, Spacer
@@ -167,6 +228,7 @@ def _detalle_rechazos_pdf(procesos, estilos):
         contenido.extend([
             Paragraph(f"<b>{escape(proceso.nombre_completo)}</b> — {escape(proceso.cedula)}", estilos["BodyText"]),
             Paragraph(f"<b>Etapa de rechazo:</b> {escape(etapa)}", estilos["BodyText"]),
+            Paragraph(f"<b>Requisitos no cumplidos:</b> {escape(_requisitos_rechazo(proceso))}", estilos["BodyText"]),
             Paragraph(f"<b>Motivo:</b> {motivo_seguro}", estilos["BodyText"]),
             Spacer(1, 0.25 * cm),
         ])
@@ -184,6 +246,7 @@ def exportar_excel(procesos, indicadores, rango):
         "Candidato", "Cédula", "Celular", "Vacante",
         "Fecha de llegada de la hoja de vida", "Etapa actual", "Estado",
         "Etapa de rechazo", "Motivo de rechazo",
+        "Requisitos no cumplidos",
     ])
     for proceso in procesos:
         etapa_rechazo, motivo_rechazo = _datos_rechazo(proceso)
@@ -197,6 +260,7 @@ def exportar_excel(procesos, indicadores, rango):
             proceso.get_estado_display(),
             _texto_excel(etapa_rechazo),
             _texto_excel(motivo_rechazo),
+            _texto_excel(_requisitos_rechazo(proceso)),
         ])
     for celda in hoja["E"][1:]:
         celda.number_format = "yyyy-mm-dd"
@@ -294,7 +358,7 @@ def exportar_trazabilidad_excel(procesos, metricas, resumen, filtros):
     hoja_candidatos.append([
         "ID", "Candidato", "Cédula", "Vacante o área", "Fecha de llegada",
         "Etapa actual", "Estado", "Tiempo total hábil (h)", "Etapa de mayor demora",
-        "Etapas fuera de tiempo", "Etapa de rechazo", "Motivo de rechazo",
+        "Etapas fuera de tiempo", "Etapa de rechazo", "Motivo de rechazo", "Requisitos no cumplidos",
     ])
     for proceso in procesos:
         etapa_rechazo, motivo_rechazo = _datos_rechazo(proceso)
@@ -311,6 +375,7 @@ def exportar_trazabilidad_excel(procesos, metricas, resumen, filtros):
             proceso.traza_fuera_tiempo,
             _texto_excel(etapa_rechazo),
             _texto_excel(motivo_rechazo),
+            _texto_excel(_requisitos_rechazo(proceso)),
         ])
     for celda in hoja_candidatos["E"][1:]:
         celda.number_format = "yyyy-mm-dd"

@@ -40,7 +40,14 @@
   <div class="col-12 col-xl-7">
     <section class="card shadow-sm border-0"><div class="card-body p-4"><h2 class="h4 fw-bold mb-4">Historial de decisiones</h2>
       <div class="timeline">
-      {% for decision in proceso.decisiones.all %}<article class="timeline-item {{ decision.resultado|lower }} {% if not decision.vigente %}opacity-75{% endif %}"><div class="d-flex justify-content-between flex-wrap gap-2"><h3 class="h5 fw-bold mb-1">{{ decision.get_etapa_display }} — {{ decision.get_resultado_display }}{% if not decision.vigente %} <span class="badge text-bg-secondary">Anulada por Gerencia</span>{% endif %}</h3><time class="text-secondary">{{ decision.fecha|date:"d/m/Y H:i" }}</time></div><p class="fs-5 mb-1">{{ decision.observacion }}</p><small class="text-secondary">Por {{ decision.decidido_por.get_full_name|default:decision.decidido_por.username }}{% if decision.anulada_por_gerencia %} · Anulada por {{ decision.anulada_por_gerencia.get_full_name|default:decision.anulada_por_gerencia.username }}{% endif %}</small></article>{% empty %}<p class="fs-5 text-secondary">Aún no se han tomado decisiones.</p>{% endfor %}
+      {% for decision in proceso.decisiones.all %}
+      <article class="timeline-item {{ decision.resultado|lower }} {% if not decision.vigente %}opacity-75{% endif %}">
+        <div class="d-flex justify-content-between flex-wrap gap-2"><h3 class="h5 fw-bold mb-1">{{ decision.get_etapa_display }} — {{ decision.get_resultado_display }}{% if not decision.vigente %} <span class="badge text-bg-secondary">Anulada por Gerencia</span>{% endif %}</h3><time class="text-secondary">{{ decision.fecha|date:"d/m/Y H:i" }}</time></div>
+        {% if decision.requisitos_no_cumplidos %}<div class="checklist-failure-summary"><strong>No cumplió:</strong><ul class="mb-0">{% for nombre in decision.requisitos_no_cumplidos %}<li>{{ nombre }}</li>{% endfor %}</ul></div>{% endif %}
+        <p class="fs-5 mb-1"><strong class="d-block small">Observación</strong>{{ decision.observacion }}</p>
+        {% if decision.requisitos_verificados %}<details class="history-checklist"><summary>Ver lista de verificación · {{ decision.requisitos_verificados|length }} requisito{{ decision.requisitos_verificados|length|pluralize }}</summary><ul>{% for requisito in decision.requisitos_verificados %}<li><span class="checklist-history-icon {% if requisito.cumple %}is-complete{% else %}is-failed{% endif %}" aria-hidden="true">{% if requisito.cumple %}✓{% else %}✕{% endif %}</span><span>{{ requisito.nombre }}</span><strong class="{% if requisito.cumple %}text-success{% else %}text-danger{% endif %}">{{ requisito.estado }}</strong></li>{% endfor %}</ul></details>{% elif decision.etapa != 'CONTRATACION' %}<p class="small text-body-secondary mt-2 mb-2">Decisión anterior a la lista de verificación. Se conserva la observación original.</p>{% endif %}
+        <small class="text-secondary">Por {{ decision.decidido_por.get_full_name|default:decision.decidido_por.username }}{% if decision.anulada_por_gerencia %} · Anulada por {{ decision.anulada_por_gerencia.get_full_name|default:decision.anulada_por_gerencia.username }}{% endif %}</small>
+      </article>{% empty %}<p class="fs-5 text-secondary">Aún no se han tomado decisiones.</p>{% endfor %}
       </div>
     </div></section>
   </div>
@@ -53,8 +60,23 @@
 {% if puede_decidir %}
 <section class="card decision-card shadow border-0 mt-4"><div class="card-body p-4 p-lg-5">
   <h2 class="h3 fw-bold">Tomar decisión: {{ proceso.get_etapa_actual_display }}</h2><p class="fs-5">La observación es obligatoria. Una aprobación avanza a la siguiente etapa; un rechazo finaliza el proceso.</p>
-  <form method="post" novalidate data-submit-once data-confirm-action data-confirm-mode="reject-only" data-confirm-title="Confirmar rechazo" data-confirm-subject="{{ proceso.nombre_completo }}" data-confirm-stage="{{ proceso.get_etapa_actual_display }}" data-confirm-message="El rechazo finalizará inmediatamente este proceso.">{% csrf_token %}
+  <form method="post" novalidate data-submit-once {% if form.tiene_requisitos %}data-stage-checklist{% endif %} data-confirm-action data-confirm-mode="reject-only" data-confirm-title="Confirmar rechazo" data-confirm-subject="{{ proceso.nombre_completo }}" data-confirm-stage="{{ proceso.get_etapa_actual_display }}" data-confirm-message="El rechazo finalizará inmediatamente este proceso.">{% csrf_token %}
     {% if form.non_field_errors %}<div class="alert alert-danger">{{ form.non_field_errors }}</div>{% endif %}
+    {% if form.tiene_requisitos %}
+    <section class="stage-checklist mb-4" aria-labelledby="titulo-verificacion">
+      <div class="checklist-heading"><div><p class="eyebrow text-primary mb-1">Revisión de requisitos</p><h3 id="titulo-verificacion" class="h4 fw-bold mb-1">Lista de verificación</h3><p class="text-body-secondary mb-0">Marque el resultado de cada requisito. Para aprobar, todos deben cumplir.</p></div><span class="checklist-count" data-checklist-count>0 de {{ form.campos_requisitos|length }} revisados</span></div>
+      <div class="checklist-rows">
+      {% for field in form.campos_requisitos %}
+        <div class="checklist-row" data-checklist-row role="group" aria-labelledby="etiqueta_{{ field.name }}">
+          <h4 id="etiqueta_{{ field.name }}"><span class="checklist-number" aria-hidden="true">{{ forloop.counter }}</span>{{ field.label }}</h4>
+          <div class="checklist-choices">{% for radio in field %}<label class="checklist-option {% if radio.data.value == 'CUMPLE' %}checklist-pass{% else %}checklist-fail{% endif %}">{{ radio.tag }}<span>{% if radio.data.value == 'CUMPLE' %}✓{% else %}✕{% endif %} {{ radio.choice_label }}</span></label>{% endfor %}</div>
+          {% for error in field.errors %}<p class="text-danger small fw-semibold mb-0 mt-2">{{ error }}</p>{% endfor %}
+        </div>
+      {% endfor %}
+      </div>
+      <p class="checklist-status mt-3 mb-0" data-checklist-status role="status" aria-live="polite">Complete la revisión antes de registrar una decisión.</p>
+    </section>
+    {% endif %}
     <fieldset class="mb-4"><legend class="fs-5 fw-bold">Decisión</legend><div class="decision-options">{% for radio in form.resultado %}<label class="decision-option {% if radio.data.value == 'APROBADO' %}approve{% else %}reject{% endif %}">{{ radio.tag }}<span>{{ radio.choice_label }}</span></label>{% endfor %}</div>{% for error in form.resultado.errors %}<div class="text-danger">{{ error }}</div>{% endfor %}</fieldset>
     <div class="mb-4"><label class="form-label fs-5 fw-bold" for="{{ form.observacion.id_for_label }}">{{ form.observacion.label }}</label>{{ form.observacion }}{% for error in form.observacion.errors %}<div class="text-danger mt-1">{{ error }}</div>{% endfor %}</div>
     <button class="btn btn-primary btn-lg px-5 py-3 fw-bold" type="submit" data-loading-text="Guardando decisión…"><span data-submit-label>Guardar decisión</span></button>

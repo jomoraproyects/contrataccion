@@ -21,6 +21,7 @@ class Command(BaseCommand):
         except ValidationError as exc:
             raise CommandError(" ".join(exc.messages)) from exc
         usuarios = {
+            "vinculacion": Perfil.Rol.VINCULACION,
             "contratacion": Perfil.Rol.CONTRATACION,
             "rrhh": Perfil.Rol.RRHH,
             "psicologia": Perfil.Rol.PSICOLOGIA,
@@ -29,10 +30,14 @@ class Command(BaseCommand):
         }
         for username, rol in usuarios.items():
             usuario, created = User.objects.get_or_create(username=username)
+            if not created:
+                self.stdout.write(self.style.WARNING(
+                    f"{username}: ya existe; se conservan su rol y contraseña"
+                ))
+                continue
             usuario.set_password(options["password"])
             usuario.first_name = username.title()
             usuario.save()
             usuario.perfil.rol = rol
             usuario.perfil.save()
-            estado = "creado" if created else "actualizado"
-            self.stdout.write(self.style.SUCCESS(f"{username}: {estado}"))
+            self.stdout.write(self.style.SUCCESS(f"{username}: creado"))

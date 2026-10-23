@@ -19,7 +19,7 @@ class LoginSeguroView(LoginView):
     max_intentos = 5
     max_intentos_ip = 20
     bloqueo_segundos = 15 * 60
-    roles_sin_bloqueo = (Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION)
+    roles_sin_bloqueo = (Perfil.Rol.GERENTE, Perfil.Rol.VINCULACION, Perfil.Rol.CONTRATACION)
 
     def _usuario_escrito(self):
         return self.request.POST.get("username", "").strip().casefold()
@@ -28,7 +28,7 @@ class LoginSeguroView(LoginView):
         return User.objects.select_related("perfil").filter(username__iexact=self._usuario_escrito()).first()
 
     def _es_acceso_esencial(self, usuario):
-        """Gerencia y Contratacion nunca quedan sin acceso por intentos fallidos."""
+        """Los accesos esenciales conservan la política de disponibilidad existente."""
         return bool(usuario and usuario.is_active and usuario.perfil.rol in self.roles_sin_bloqueo)
 
     def _limpiar_bloqueo_esencial(self, usuario):

@@ -7,7 +7,7 @@ from django.core.cache import cache
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.core.exceptions import ValidationError
-from django.db import IntegrityError, transaction
+from django.db import IntegrityError, connection, transaction
 from django.test import TestCase, override_settings
 from django.template.loader import render_to_string
 from django.urls import reverse
@@ -15,11 +15,36 @@ from django.utils import timezone
 
 from .calendario import es_dia_habil, segundos_habiles_entre, sumar_dias_habiles, sumar_segundos_habiles
 from .models import Candidato, CambioGerencia, Decision, EventoSeguridad, Perfil, ProcesoSeleccion, SeguimientoEtapa
+from .requisitos import obtener_requisitos
 from .signals import crear_perfil, iniciar_control_de_tiempo
 
 
 @override_settings(PASSWORD_HASHERS=["django.contrib.auth.hashers.MD5PasswordHasher"])
 class FlujoProcesoTests(TestCase):
+    def _verificaciones(self, etapa, resultado=Decision.Resultado.APROBADO):
+        verificaciones = {
+            requisito["codigo"]: "CUMPLE" for requisito in obtener_requisitos(etapa)
+        }
+        if resultado == Decision.Resultado.RECHAZADO and verificaciones:
+            verificaciones[next(iter(verificaciones))] = "NO_CUMPLE"
+        return verificaciones
+
+    def _registrar_decision(self, proceso, usuario, resultado, observacion):
+        return proceso.registrar_decision(
+            usuario, resultado, observacion,
+            verificaciones=self._verificaciones(proceso.etapa_actual, resultado),
+        )
+
+    def _datos_decision(self, etapa, resultado, observacion):
+        return {
+            "resultado": resultado,
+            "observacion": observacion,
+            **{
+                f"requisito_{codigo}": respuesta
+                for codigo, respuesta in self._verificaciones(etapa, resultado).items()
+            },
+        }
+
     def setUp(self):
         cache.clear()
         self.usuarios = {}
@@ -31,7 +56,7 @@ class FlujoProcesoTests(TestCase):
         self.proceso = ProcesoSeleccion.objects.create(
             nombre="Ana", apellidos="Pérez", cedula="12345", celular="3001234567",
             fecha_llegada=date.today(), vacante="Contabilidad",
-            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            creado_por=self.usuarios[Perfil.Rol.VINCULACION],
         )
 
     def test_flujo_completo_hasta_contratado(self):
@@ -40,10 +65,10 @@ class FlujoProcesoTests(TestCase):
             (Perfil.Rol.PSICOLOGIA, ProcesoSeleccion.Etapa.SEGURIDAD),
             (Perfil.Rol.SEGURIDAD, ProcesoSeleccion.Etapa.CONTRATACION),
         ]:
-            self.proceso.registrar_decision(self.usuarios[rol], Decision.Resultado.APROBADO, "Cumple los requisitos")
+            self._registrar_decision(self.proceso, self.usuarios[rol], Decision.Resultado.APROBADO, "Cumple los requisitos")
             self.assertEqual(self.proceso.etapa_actual, etapa_esperada)
         self.assertEqual(self.proceso.estado, ProcesoSeleccion.Estado.LISTO_CONTRATACION)
-        self.proceso.registrar_decision(self.usuarios[Perfil.Rol.CONTRATACION], Decision.Resultado.APROBADO, "Contrato firmado")
+        self._registrar_decision(self.proceso, self.usuarios[Perfil.Rol.CONTRATACION], Decision.Resultado.APROBADO, "Contrato firmado")
         self.assertEqual(self.proceso.estado, ProcesoSeleccion.Estado.CONTRATADO)
         self.assertEqual(self.proceso.decisiones.count(), 4)
         seguimientos = list(self.proceso.seguimientos.order_by("inicio"))
@@ -53,10 +78,9 @@ class FlujoProcesoTests(TestCase):
 
     def test_aprobar_redirige_al_area_anterior_a_su_bandeja(self):
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
-        response = self.client.post(reverse("procesos:detalle", args=[self.proceso.pk]), {
-            "resultado": Decision.Resultado.APROBADO,
-            "observacion": "Validación legal finalizada",
-        })
+        response = self.client.post(reverse("procesos:detalle", args=[self.proceso.pk]), self._datos_decision(
+            self.proceso.etapa_actual, Decision.Resultado.APROBADO, "Validación legal finalizada",
+        ))
         self.assertEqual(response.status_code, 302)
         self.assertEqual(response.url, reverse("procesos:lista"))
         self.proceso.refresh_from_db()
@@ -69,8 +93,8 @@ class FlujoProcesoTests(TestCase):
         seguimiento = self.proceso.seguimientos.get()
         self.assertEqual(seguimiento.etapa, ProcesoSeleccion.Etapa.RRHH)
         self.assertEqual(seguimiento.fecha_limite, sumar_dias_habiles(seguimiento.inicio, 2))
-        self.proceso.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Validación completada"
+        self._registrar_decision(
+            self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Validación completada"
         )
         seguimiento.refresh_from_db()
         self.assertIsNotNone(seguimiento.fin)
@@ -136,16 +160,16 @@ class FlujoProcesoTests(TestCase):
     def test_estilos_principales_tienen_version_para_evitar_cache_antigua(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:trazabilidad"))
-        self.assertContains(response, "css/app.css?v=20261013.7")
+        self.assertContains(response, "css/app.css?v=20261023.2")
 
     def test_trazabilidad_filtra_por_fecha_estado_nombre_y_vacante(self):
         otro = ProcesoSeleccion.objects.create(
             nombre="Luis", apellidos="Antiguo", cedula="987654", celular="3007654321",
             fecha_llegada=date(2025, 1, 10), vacante="Ventas",
-            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            creado_por=self.usuarios[Perfil.Rol.VINCULACION],
         )
-        otro.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa"
+        self._registrar_decision(
+            otro, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa"
         )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:trazabilidad"), {
@@ -187,16 +211,16 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(self.client.get(reverse("procesos:trazabilidad")).status_code, 403)
 
     def test_rechazo_detiene_el_proceso(self):
-        self.proceso.registrar_decision(self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No cumple validación")
+        self._registrar_decision(self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No cumple validación")
         self.assertEqual(self.proceso.estado, ProcesoSeleccion.Estado.RECHAZADO)
         with self.assertRaises(ValidationError):
-            self.proceso.registrar_decision(self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Cambiar decisión")
+            self._registrar_decision(self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Cambiar decisión")
 
     def test_no_permite_saltar_etapa_ni_observacion_vacia(self):
         with self.assertRaises(ValidationError):
-            self.proceso.registrar_decision(self.usuarios[Perfil.Rol.PSICOLOGIA], Decision.Resultado.APROBADO, "Apto")
+            self._registrar_decision(self.proceso, self.usuarios[Perfil.Rol.PSICOLOGIA], Decision.Resultado.APROBADO, "Apto")
         with self.assertRaises(ValidationError):
-            self.proceso.registrar_decision(self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "  ")
+            self._registrar_decision(self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "  ")
 
     def test_base_de_datos_impide_dos_decisiones_vigentes_en_la_misma_etapa(self):
         Decision.objects.create(
@@ -225,15 +249,162 @@ class FlujoProcesoTests(TestCase):
         response = self.client.get(reverse("procesos:detalle", args=[self.proceso.pk]))
         self.assertEqual(response.status_code, 200)
         self.assertNotContains(response, "Guardar decisión")
-        response = self.client.post(reverse("procesos:detalle", args=[self.proceso.pk]), {"resultado": "APROBADO", "observacion": "Apto"})
+        response = self.client.post(reverse("procesos:detalle", args=[self.proceso.pk]), self._datos_decision(
+            self.proceso.etapa_actual, Decision.Resultado.APROBADO, "Apto",
+        ))
         self.assertEqual(response.status_code, 403)
 
-    def test_solo_contratacion_crea_procesos(self):
-        self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
-        self.assertEqual(self.client.get(reverse("procesos:crear")).status_code, 403)
+    def test_solo_vinculacion_crea_procesos(self):
+        for rol in Perfil.Rol.values:
+            self.client.force_login(self.usuarios[rol])
+            esperado = 200 if rol == Perfil.Rol.VINCULACION else 403
+            with self.subTest(rol=rol):
+                self.assertEqual(self.client.get(reverse("procesos:crear")).status_code, esperado)
+
+    def test_contratacion_no_crea_ni_consulta_cedulas_por_post_directo(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        respuesta = self.client.post(reverse("procesos:crear"), {
+            "nombre": "Otra", "apellidos": "Persona", "cedula": "454545",
+            "celular": "3001234567", "fecha_llegada": date.today().isoformat(),
+            "vacante": "Sistemas",
+        })
+        self.assertEqual(respuesta.status_code, 403)
+        self.assertFalse(ProcesoSeleccion.objects.filter(cedula="454545").exists())
+        self.assertEqual(self.client.get(reverse("procesos:consultar_candidato_cedula"), {
+            "cedula": self.proceso.cedula,
+        }).status_code, 403)
+
+    def test_flujo_web_desde_vinculacion_hasta_contratacion_separada(self):
+        vinculacion = self.usuarios[Perfil.Rol.VINCULACION]
+        self.client.force_login(vinculacion)
+        respuesta = self.client.post(reverse("procesos:crear"), {
+            "nombre": "Elena", "apellidos": "Nueva", "cedula": "454546",
+            "celular": "3001234567", "fecha_llegada": date.today().isoformat(),
+            "vacante": "Sistemas",
+        })
+        proceso = ProcesoSeleccion.objects.get(cedula="454546")
+        detalle = reverse("procesos:detalle", args=[proceso.pk])
+        self.assertRedirects(respuesta, detalle)
+        self.assertEqual(proceso.creado_por, vinculacion)
+        self.assertEqual(proceso.etapa_actual, ProcesoSeleccion.Etapa.RRHH)
+        self.assertEqual(proceso.seguimientos.count(), 1)
+
+        for rol in (Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA, Perfil.Rol.SEGURIDAD, Perfil.Rol.CONTRATACION):
+            self.client.force_login(vinculacion)
+            self.assertEqual(self.client.post(detalle, self._datos_decision(
+                rol, Decision.Resultado.APROBADO, "Intento de saltar permisos",
+            )).status_code, 403)
+            self.client.force_login(self.usuarios[rol])
+            self.assertEqual(self.client.get(detalle).status_code, 200)
+            respuesta = self.client.post(detalle, self._datos_decision(
+                rol, Decision.Resultado.APROBADO, f"Validación completada por {rol}",
+            ))
+            self.assertEqual(respuesta.status_code, 302)
+
+        proceso.refresh_from_db()
+        self.assertEqual(proceso.estado, ProcesoSeleccion.Estado.CONTRATADO)
+        self.assertEqual(list(proceso.decisiones.values_list("etapa", flat=True)), list(ProcesoSeleccion.Etapa.values))
+        self.assertEqual(proceso.seguimientos.filter(fin__isnull=False).count(), 4)
+        self.client.force_login(vinculacion)
+        self.assertContains(self.client.get(reverse("procesos:contratacion")), "Elena Nueva")
+
+    def test_contratacion_solo_recibe_el_proceso_tras_aprobar_seguridad(self):
+        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        detalle = reverse("procesos:detalle", args=[self.proceso.pk])
+        self.assertEqual(self.client.get(detalle).status_code, 404)
+        self.assertNotContains(self.client.get(reverse("procesos:lista")), "Ana Pérez")
+        for rol in (Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA, Perfil.Rol.SEGURIDAD):
+            self._registrar_decision(self.proceso, self.usuarios[rol], Decision.Resultado.APROBADO, "Validación correcta")
+        respuesta = self.client.get(reverse("procesos:lista"))
+        self.assertContains(respuesta, "Ana Pérez")
+        self.assertContains(respuesta, "Nuevo proceso asignado")
+        self.assertNotContains(respuesta, "+ Añadir nuevo proceso")
+        self.assertEqual(self.client.get(detalle).status_code, 200)
+        self._registrar_decision(
+            self.proceso, self.usuarios[Perfil.Rol.CONTRATACION], Decision.Resultado.RECHAZADO, "No acepta condiciones del contrato",
+        )
+        self.assertContains(self.client.get(reverse("procesos:rechazados")), "No acepta condiciones del contrato")
+
+    def test_vinculacion_ve_sus_procesos_pero_no_los_de_otro_creador(self):
+        otro = User.objects.create_user(username="otra.vinculacion", password="prueba-segura")
+        otro.perfil.rol = Perfil.Rol.VINCULACION
+        otro.perfil.save(update_fields=["rol"])
+        self.client.force_login(otro)
+        self.assertNotContains(self.client.get(reverse("procesos:lista")), "Ana Pérez")
+        self.assertEqual(self.client.get(reverse("procesos:detalle", args=[self.proceso.pk])).status_code, 404)
+
+    def test_migracion_conserva_cuentas_claves_procesos_y_trazabilidad(self):
+        from importlib import import_module
+        from django.apps import apps
+        from types import SimpleNamespace
+
+        usuario_final = self.usuarios[Perfil.Rol.CONTRATACION]
+        usuario_final.username = "contratacion.final"
+        usuario_final.save(update_fields=["username"])
+        creador = self.usuarios[Perfil.Rol.VINCULACION]
+        creador.perfil.rol = Perfil.Rol.CONTRATACION
+        creador.perfil.save(update_fields=["rol"])
+        self._registrar_decision(self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "Motivo histórico")
+        tablas = (User, ProcesoSeleccion, Candidato, Decision, SeguimientoEtapa)
+        antes = {modelo: list(modelo.objects.order_by("pk").values()) for modelo in tablas}
+        migracion = import_module("procesos.migrations.0015_separar_vinculacion_contratacion")
+        migracion.conservar_cuentas_creadoras_como_vinculacion(
+            apps, SimpleNamespace(connection=connection),
+        )
+        creador.perfil.refresh_from_db()
+        self.assertEqual(creador.perfil.rol, Perfil.Rol.VINCULACION)
+        for modelo in tablas:
+            self.assertEqual(list(modelo.objects.order_by("pk").values()), antes[modelo])
+
+    def test_migracion_renombra_contratacion_a_vinculacion_sin_cambiar_clave_ni_procesos(self):
+        from importlib import import_module
+        from django.apps import apps
+        from types import SimpleNamespace
+
+        usuario_final = self.usuarios[Perfil.Rol.CONTRATACION]
+        usuario_final.username = "contratacion.final"
+        usuario_final.save(update_fields=["username"])
+        creador = self.usuarios[Perfil.Rol.VINCULACION]
+        creador.username = "contratacion"
+        creador.save(update_fields=["username"])
+        creador.perfil.rol = Perfil.Rol.CONTRATACION
+        creador.perfil.save(update_fields=["rol"])
+        clave_anterior = creador.password
+        pk_anterior = creador.pk
+        proceso_anterior = self.proceso.pk
+
+        migracion = import_module("procesos.migrations.0015_separar_vinculacion_contratacion")
+        migracion.conservar_cuentas_creadoras_como_vinculacion(
+            apps, SimpleNamespace(connection=connection),
+        )
+
+        creador.refresh_from_db()
+        creador.perfil.refresh_from_db()
+        self.assertEqual(creador.username, "vinculacion")
+        self.assertEqual(creador.perfil.rol, Perfil.Rol.VINCULACION)
+        self.assertEqual(creador.pk, pk_anterior)
+        self.assertEqual(creador.password, clave_anterior)
+        self.assertTrue(creador.check_password("prueba-segura"))
+        self.assertEqual(ProcesoSeleccion.objects.get(pk=proceso_anterior).creado_por_id, pk_anterior)
+
+    def test_migracion_no_pisa_otra_cuenta_vinculacion(self):
+        from importlib import import_module
+        from django.apps import apps
+        from types import SimpleNamespace
+
+        usuario_original = self.usuarios[Perfil.Rol.CONTRATACION]
+
+        migracion = import_module("procesos.migrations.0015_separar_vinculacion_contratacion")
+        with self.assertRaisesMessage(RuntimeError, "Ya existe el usuario vinculacion"):
+            migracion.conservar_cuentas_creadoras_como_vinculacion(
+                apps, SimpleNamespace(connection=connection),
+            )
+        usuario_original.perfil.refresh_from_db()
+        self.assertEqual(usuario_original.username, "contratacion")
+        self.assertEqual(usuario_original.perfil.rol, Perfil.Rol.CONTRATACION)
 
     def test_formulario_rechaza_celular_con_letras_y_fecha_futura(self):
-        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        self.client.force_login(self.usuarios[Perfil.Rol.VINCULACION])
         response = self.client.post(reverse("procesos:crear"), {
             "nombre": "Luis", "apellidos": "Prueba", "cedula": "987654",
             "celular": "300ABC123", "fecha_llegada": (date.today() + timedelta(days=1)).isoformat(),
@@ -293,7 +464,7 @@ class FlujoProcesoTests(TestCase):
 
     def test_accesos_esenciales_no_se_bloquean_ni_muestran_contador(self):
         url = reverse("login")
-        for rol in (Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION):
+        for rol in (Perfil.Rol.GERENTE, Perfil.Rol.VINCULACION, Perfil.Rol.CONTRATACION):
             usuario = self.usuarios[rol]
             for _ in range(6):
                 response = self.client.post(url, {
@@ -385,6 +556,42 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(nuevo.perfil.rol, Perfil.Rol.RRHH)
         self.assertTrue(nuevo.check_password("ClaveInicial2026!"))
 
+    def test_gerente_crea_cuenta_final_sin_modificar_a_vinculacion(self):
+        creador = self.usuarios[Perfil.Rol.VINCULACION]
+        clave_creador = creador.password
+        self.usuarios[Perfil.Rol.CONTRATACION].perfil.rol = Perfil.Rol.SIN_ASIGNAR
+        self.usuarios[Perfil.Rol.CONTRATACION].perfil.save(update_fields=["rol"])
+        self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
+        self.assertContains(self.client.get(reverse("procesos:usuarios")), "Falta asignar la última etapa")
+        respuesta = self.client.post(reverse("procesos:usuario_crear"), {
+            "username": "contratacion.final", "first_name": "Responsable", "last_name": "Final",
+            "rol": Perfil.Rol.CONTRATACION,
+            "password1": "ClaveFinalElegida2026!", "password2": "ClaveFinalElegida2026!",
+        })
+        self.assertRedirects(respuesta, reverse("procesos:usuarios"))
+        final = User.objects.get(username="contratacion.final")
+        self.assertEqual(final.perfil.rol, Perfil.Rol.CONTRATACION)
+        self.assertTrue(final.check_password("ClaveFinalElegida2026!"))
+        creador.refresh_from_db()
+        self.assertEqual(creador.password, clave_creador)
+        self.assertEqual(creador.perfil.rol, Perfil.Rol.VINCULACION)
+        self.assertNotContains(self.client.get(reverse("procesos:usuarios")), "Falta asignar la última etapa")
+
+    @override_settings(DEBUG=True)
+    def test_demo_conserva_contrasenas_y_roles_existentes(self):
+        from io import StringIO
+
+        antiguo = self.usuarios[Perfil.Rol.CONTRATACION]
+        antiguo.perfil.rol = Perfil.Rol.VINCULACION
+        antiguo.perfil.save(update_fields=["rol"])
+        clave = antiguo.password
+        salida = StringIO()
+        call_command("crear_usuarios_demo", password="ClaveDemoNueva2026!", stdout=salida)
+        antiguo.refresh_from_db()
+        self.assertEqual(antiguo.password, clave)
+        self.assertEqual(antiguo.perfil.rol, Perfil.Rol.VINCULACION)
+        self.assertIn("se conservan su rol y contraseña", salida.getvalue())
+
     def test_gerente_edita_y_bloquea_usuario(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         objetivo = self.usuarios[Perfil.Rol.RRHH]
@@ -431,7 +638,7 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(objetivo.perfil.rol, Perfil.Rol.CONTRATACION)
 
     def test_modelo_impide_desactivar_accesos_esenciales(self):
-        for rol in (Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION):
+        for rol in (Perfil.Rol.GERENTE, Perfil.Rol.VINCULACION, Perfil.Rol.CONTRATACION):
             usuario = self.usuarios[rol]
             usuario.is_active = False
             usuario.save(update_fields=["is_active"])
@@ -474,7 +681,7 @@ class FlujoProcesoTests(TestCase):
             ProcesoSeleccion.objects.create(
                 nombre=f"Persona {indice}", apellidos="Prueba", cedula=f"99{indice:03d}",
                 celular="3001234567", fecha_llegada=date.today(), vacante="Ventas",
-                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+                creado_por=self.usuarios[Perfil.Rol.VINCULACION],
             )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:lista"), {"vacante": "Ventas"})
@@ -491,7 +698,7 @@ class FlujoProcesoTests(TestCase):
             ProcesoSeleccion.objects.create(
                 nombre=f"Reciente {indice:02d}", apellidos="Prueba", cedula=f"881{indice:03d}",
                 celular="3001234567", fecha_llegada=date.today(), vacante="Ventas",
-                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+                creado_por=self.usuarios[Perfil.Rol.VINCULACION],
             )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         primera = self.client.get(reverse("procesos:trazabilidad"))
@@ -511,14 +718,14 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(len(primera.context["usuarios"]), 5)
         self.assertEqual(primera.context["usuarios"][0].username, "rrhh_nuevo_1")
         segunda = self.client.get(reverse("procesos:usuarios"), {"page": 2})
-        self.assertEqual(len(segunda.context["usuarios"]), 2)
+        self.assertEqual(len(segunda.context["usuarios"]), 3)
 
     def test_bandeja_area_pagina_pendientes_sin_perder_total(self):
         for indice in range(6):
             ProcesoSeleccion.objects.create(
                 nombre=f"Pendiente {indice}", apellidos="Prueba", cedula=f"771{indice:03d}",
                 celular="3001234567", fecha_llegada=date.today(), vacante="Ventas",
-                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+                creado_por=self.usuarios[Perfil.Rol.VINCULACION],
             )
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
         primera = self.client.get(reverse("procesos:lista"))
@@ -533,10 +740,10 @@ class FlujoProcesoTests(TestCase):
             proceso = ProcesoSeleccion.objects.create(
                 nombre=f"Terminado {indice}", apellidos="Prueba", cedula=f"773{indice:03d}",
                 celular="3001234567", fecha_llegada=date.today(), vacante="Ventas",
-                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+                creado_por=self.usuarios[Perfil.Rol.VINCULACION],
             )
-            proceso.registrar_decision(
-                self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa",
+            self._registrar_decision(
+                proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa",
             )
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
         primera = self.client.get(reverse("procesos:lista"))
@@ -580,8 +787,8 @@ class FlujoProcesoTests(TestCase):
         self.assertContains(detalle, "Cambios realizados por Gerencia")
 
     def test_gerente_no_reabre_un_rechazo_desde_la_edicion(self):
-        self.proceso.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "Documento inicialmente inválido"
+        self._registrar_decision(
+            self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "Documento inicialmente inválido"
         )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         self.client.post(reverse("procesos:proceso_editar", args=[self.proceso.pk]), {
@@ -629,8 +836,8 @@ class FlujoProcesoTests(TestCase):
 
     def test_contratacion_muestra_tiempo_total_y_cumplimiento(self):
         for rol in (Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA, Perfil.Rol.SEGURIDAD, Perfil.Rol.CONTRATACION):
-            self.proceso.registrar_decision(
-                self.usuarios[rol], Decision.Resultado.APROBADO, "Etapa completada dentro del plazo"
+            self._registrar_decision(
+                self.proceso, self.usuarios[rol], Decision.Resultado.APROBADO, "Etapa completada dentro del plazo"
             )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:contratacion"))
@@ -639,8 +846,8 @@ class FlujoProcesoTests(TestCase):
         self.assertContains(response, "horas")
 
     def test_detalle_muestra_inicio_fin_y_tiempo_de_cada_etapa(self):
-        self.proceso.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Validación terminada"
+        self._registrar_decision(
+            self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Validación terminada"
         )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:detalle", args=[self.proceso.pk]))
@@ -652,8 +859,8 @@ class FlujoProcesoTests(TestCase):
 
     def test_comando_reconstruye_tiempos_de_procesos_antiguos(self):
         for rol in (Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA, Perfil.Rol.SEGURIDAD, Perfil.Rol.CONTRATACION):
-            self.proceso.registrar_decision(
-                self.usuarios[rol], Decision.Resultado.APROBADO, "Decisión histórica"
+            self._registrar_decision(
+                self.proceso, self.usuarios[rol], Decision.Resultado.APROBADO, "Decisión histórica"
             )
         self.proceso.seguimientos.all().delete()
         call_command("reconstruir_seguimientos")
@@ -712,7 +919,7 @@ class FlujoProcesoTests(TestCase):
         segundo = ProcesoSeleccion.objects.create(
             nombre="Ana", apellidos="Pérez", cedula="12345", celular="3001234567",
             fecha_llegada=date.today(), vacante="Tesorería",
-            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            creado_por=self.usuarios[Perfil.Rol.VINCULACION],
         )
         url_eliminar = reverse("procesos:proceso_eliminar", args=[self.proceso.pk])
         response = self.client.get(url_eliminar)
@@ -739,11 +946,11 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(self.client.get(reverse("procesos:contratacion")).status_code, 403)
 
     def test_area_consulta_historial_terminado_en_el_que_participo(self):
-        self.proceso.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Validación correcta"
+        self._registrar_decision(
+            self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.APROBADO, "Validación correcta"
         )
-        self.proceso.registrar_decision(
-            self.usuarios[Perfil.Rol.PSICOLOGIA], Decision.Resultado.RECHAZADO, "No continúa"
+        self._registrar_decision(
+            self.proceso, self.usuarios[Perfil.Rol.PSICOLOGIA], Decision.Resultado.RECHAZADO, "No continúa"
         )
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
         response = self.client.get(reverse("procesos:lista"))
@@ -752,7 +959,7 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(self.client.get(reverse("procesos:detalle", args=[self.proceso.pk])).status_code, 200)
 
     def test_no_permite_dos_procesos_abiertos_para_la_misma_cedula(self):
-        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        self.client.force_login(self.usuarios[Perfil.Rol.VINCULACION])
         response = self.client.post(reverse("procesos:crear"), {
             "nombre": "Ana", "apellidos": "Nueva", "cedula": "12345",
             "celular": "3009876543", "fecha_llegada": date.today().isoformat(), "vacante": "Ventas",
@@ -765,14 +972,14 @@ class FlujoProcesoTests(TestCase):
             ProcesoSeleccion.objects.create(
                 nombre="Ana", apellidos="Duplicada", cedula="12345", celular="3009876543",
                 fecha_llegada=date.today(), vacante="Ventas",
-                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+                creado_por=self.usuarios[Perfil.Rol.VINCULACION],
             )
 
     def test_nuevo_candidato_rechazado_se_bloquea_con_etapa_y_motivo(self):
-        self.proceso.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "Antecedentes sin validar"
+        self._registrar_decision(
+            self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "Antecedentes sin validar"
         )
-        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        self.client.force_login(self.usuarios[Perfil.Rol.VINCULACION])
         response = self.client.post(reverse("procesos:crear"), {
             "nombre": "Ana", "apellidos": "Pérez", "cedula": "12345",
             "celular": "3009876543", "fecha_llegada": date.today().isoformat(), "vacante": "Ventas",
@@ -788,8 +995,8 @@ class FlujoProcesoTests(TestCase):
             Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA,
             Perfil.Rol.SEGURIDAD, Perfil.Rol.CONTRATACION,
         ):
-            self.proceso.registrar_decision(self.usuarios[rol], Decision.Resultado.APROBADO, "Apto")
-        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+            self._registrar_decision(self.proceso, self.usuarios[rol], Decision.Resultado.APROBADO, "Apto")
+        self.client.force_login(self.usuarios[Perfil.Rol.VINCULACION])
         response = self.client.post(reverse("procesos:crear"), {
             "nombre": "Ana", "apellidos": "Pérez", "cedula": "12345",
             "celular": "3009876543", "fecha_llegada": date.today().isoformat(), "vacante": "Ventas",
@@ -799,8 +1006,8 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(ProcesoSeleccion.objects.filter(cedula="12345").count(), 1)
 
     def test_bloqueo_de_nuevos_candidatos_no_impide_edicion_de_gerencia(self):
-        self.proceso.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No apta",
+        self._registrar_decision(
+            self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No apta",
         )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.post(reverse("procesos:proceso_editar", args=[self.proceso.pk]), {
@@ -813,7 +1020,7 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(self.proceso.nombre, "Ana María")
 
     def test_vacante_nueva_se_guarda_normalizada(self):
-        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        self.client.force_login(self.usuarios[Perfil.Rol.VINCULACION])
         response = self.client.post(reverse("procesos:crear"), {
             "nombre": "Carlos", "apellidos": "López", "cedula": "778899",
             "celular": "3009876543", "fecha_llegada": date.today().isoformat(),
@@ -823,7 +1030,7 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(ProcesoSeleccion.objects.get(cedula="778899").vacante, "ASEO - RECOLECCIÓN")
 
     def test_consulta_cedula_recupera_datos_e_historial(self):
-        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        self.client.force_login(self.usuarios[Perfil.Rol.VINCULACION])
         response = self.client.get(reverse("procesos:consultar_candidato_cedula"), {"cedula": "12.345"})
         self.assertEqual(response.status_code, 200)
         datos = response.json()
@@ -835,16 +1042,16 @@ class FlujoProcesoTests(TestCase):
         self.assertIsNone(datos["ultimo_rechazo"])
 
     def test_consulta_cedula_muestra_el_rechazo_aunque_exista_otro_proceso(self):
-        self.proceso.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO,
+        self._registrar_decision(
+            self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO,
             "No aprobó la validación legal",
         )
         ProcesoSeleccion.objects.create(
             nombre="Ana", apellidos="Pérez", cedula="12345", celular="3001234567",
             fecha_llegada=date.today(), vacante="Ventas",
-            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            creado_por=self.usuarios[Perfil.Rol.VINCULACION],
         )
-        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        self.client.force_login(self.usuarios[Perfil.Rol.VINCULACION])
         response = self.client.get(reverse("procesos:consultar_candidato_cedula"), {"cedula": "12.345"})
         self.assertEqual(response.status_code, 200)
         self.assertIn("no-cache", response["Cache-Control"])
@@ -853,22 +1060,23 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(datos["ultimo_rechazo"], {
             "vacante": "Contabilidad", "etapa": "Talento Humano",
             "motivo": "No aprobó la validación legal",
+            "requisitos": ["Antecedentes judiciales"],
         })
 
-    def test_consulta_cedula_solo_es_para_contratacion(self):
+    def test_consulta_cedula_solo_es_para_vinculacion(self):
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
         response = self.client.get(reverse("procesos:consultar_candidato_cedula"), {"cedula": "12345"})
         self.assertEqual(response.status_code, 403)
 
     def test_formulario_nuevo_incluye_alerta_de_cedula_existente(self):
-        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        self.client.force_login(self.usuarios[Perfil.Rol.VINCULACION])
         response = self.client.get(reverse("procesos:crear"))
         self.assertContains(response, "data-candidate-lookup-url")
         self.assertContains(response, "data-candidate-match")
         self.assertContains(response, "data-candidate-rejection-reason")
 
     def test_consulta_cedula_rechaza_caracteres_no_permitidos_y_post(self):
-        self.client.force_login(self.usuarios[Perfil.Rol.CONTRATACION])
+        self.client.force_login(self.usuarios[Perfil.Rol.VINCULACION])
         url = reverse("procesos:consultar_candidato_cedula")
         self.assertFalse(self.client.get(url, {"cedula": "abc12345"}).json()["encontrado"])
         self.assertEqual(self.client.post(url, {"cedula": "12345"}).status_code, 405)
@@ -877,7 +1085,7 @@ class FlujoProcesoTests(TestCase):
         ProcesoSeleccion.objects.create(
             nombre="Carlos", apellidos="Rojas", cedula="987654", celular="3101234567",
             fecha_llegada=date.today(), vacante="Sistemas",
-            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            creado_por=self.usuarios[Perfil.Rol.VINCULACION],
         )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.post(reverse("procesos:proceso_editar", args=[self.proceso.pk]), {
@@ -892,10 +1100,9 @@ class FlujoProcesoTests(TestCase):
 
     def test_observacion_tiene_limite_para_evitar_cargas_excesivas(self):
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
-        response = self.client.post(reverse("procesos:detalle", args=[self.proceso.pk]), {
-            "resultado": Decision.Resultado.APROBADO,
-            "observacion": "x" * 2001,
-        })
+        response = self.client.post(reverse("procesos:detalle", args=[self.proceso.pk]), self._datos_decision(
+            self.proceso.etapa_actual, Decision.Resultado.APROBADO, "x" * 2001,
+        ))
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Asegúrese de que este valor tenga como máximo 2000 caracteres")
         self.assertFalse(self.proceso.decisiones.exists())
@@ -999,10 +1206,14 @@ class FlujoProcesoTests(TestCase):
 
     def test_pantallas_operativas_renderizan_segun_el_rol(self):
         casos = [
-            (Perfil.Rol.CONTRATACION, [
+            (Perfil.Rol.VINCULACION, [
                 reverse("procesos:lista"), reverse("procesos:contratacion"),
                 reverse("procesos:rechazados"), reverse("procesos:crear"),
                 reverse("procesos:detalle", args=[self.proceso.pk]),
+            ]),
+            (Perfil.Rol.CONTRATACION, [
+                reverse("procesos:lista"), reverse("procesos:contratacion"),
+                reverse("procesos:rechazados"),
             ]),
             (Perfil.Rol.RRHH, [
                 reverse("procesos:lista"), reverse("procesos:detalle", args=[self.proceso.pk]),
@@ -1052,7 +1263,7 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(response.status_code, 404)
 
     def test_indicadores_disponibles_para_gerencia_y_contratacion(self):
-        for rol in (Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION):
+        for rol in (Perfil.Rol.GERENTE, Perfil.Rol.VINCULACION, Perfil.Rol.CONTRATACION):
             self.client.force_login(self.usuarios[rol])
             response = self.client.get(reverse("procesos:indicadores"))
             with self.subTest(rol=rol):
@@ -1061,20 +1272,51 @@ class FlujoProcesoTests(TestCase):
                 self.assertContains(response, "Candidatos filtrados")
                 self.assertContains(response, "Estado del proceso")
                 self.assertContains(response, "Tiempo promedio por etapa")
-                self.assertContains(response, "Procesos iniciados por mes")
+                self.assertContains(response, 'data-chart="tendencia"')
                 self.assertContains(response, "Vacantes con más candidatos")
-                self.assertNotContains(response, "Área o etapa actual")
+                self.assertContains(response, 'name="periodo"')
+                self.assertContains(response, "Semanal")
+                self.assertContains(response, "Mensual")
+                self.assertContains(response, "Anual")
+                self.assertContains(response, "Área o etapa actual")
         self.client.force_login(self.usuarios[Perfil.Rol.RRHH])
         self.assertEqual(self.client.get(reverse("procesos:indicadores")).status_code, 403)
+
+    def test_indicadores_y_exportaciones_respetan_el_ambito_del_rol(self):
+        otro_creador = User.objects.create_user(username="vinculacion.otra", password="prueba-segura")
+        otro_creador.perfil.rol = Perfil.Rol.VINCULACION
+        otro_creador.perfil.save(update_fields=["rol"])
+        ProcesoSeleccion.objects.create(
+            nombre="Otra", apellidos="Persona", cedula="991144", celular="3001234567",
+            fecha_llegada=date.today(), vacante="Ventas", creado_por=otro_creador,
+        )
+        for rol in (Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA, Perfil.Rol.SEGURIDAD):
+            self._registrar_decision(self.proceso, self.usuarios[rol], Decision.Resultado.APROBADO, "Apto para continuar")
+        for rol, total in ((Perfil.Rol.GERENTE, 2), (Perfil.Rol.VINCULACION, 1), (Perfil.Rol.CONTRATACION, 1)):
+            self.client.force_login(self.usuarios[rol])
+            with self.subTest(rol=rol):
+                respuesta = self.client.get(reverse("procesos:indicadores"))
+                self.assertEqual(respuesta.status_code, 200)
+                self.assertEqual(respuesta.context["indicadores"]["total"], total)
+                if rol != Perfil.Rol.GERENTE:
+                    self.assertNotContains(respuesta, "Otra Persona")
+        for rol in (Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA, Perfil.Rol.SEGURIDAD):
+            self.client.force_login(self.usuarios[rol])
+            with self.subTest(rol=rol):
+                self.assertEqual(self.client.get(reverse("procesos:indicadores")).status_code, 403)
+                for formato in ("xlsx", "pdf"):
+                    self.assertEqual(self.client.get(
+                        reverse("procesos:exportar_indicadores", args=[formato]),
+                    ).status_code, 403)
 
     def test_indicadores_filtran_por_fecha_y_calculan_porcentajes(self):
         anterior = ProcesoSeleccion.objects.create(
             nombre="Luis", apellidos="Viejo", cedula="998877", celular="3009998877",
             fecha_llegada=date(2025, 1, 5), vacante="Archivo",
-            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            creado_por=self.usuarios[Perfil.Rol.VINCULACION],
         )
-        anterior.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa"
+        self._registrar_decision(
+            anterior, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa"
         )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:indicadores"), {
@@ -1085,17 +1327,24 @@ class FlujoProcesoTests(TestCase):
         self.assertNotContains(response, "Luis Viejo")
 
         response = self.client.get(reverse("procesos:indicadores"))
+        self.assertEqual(response.context["indicadores"]["rechazados"], 0)
+        self.assertNotContains(response, "Luis Viejo")
+
+        response = self.client.get(reverse("procesos:indicadores"), {"periodo": "anual", "anio": 2025})
+        self.assertEqual(response.context["indicadores"]["total"], 1)
         self.assertEqual(response.context["indicadores"]["rechazados"], 1)
         self.assertEqual(response.context["indicadores"]["porcentaje_rechazados"], 100)
+        self.assertContains(response, "Luis Viejo")
+        self.assertEqual([proceso.pk for proceso in response.context["procesos"]], [anterior.pk])
 
     def test_indicadores_filtran_por_estado_etapa_y_vacante(self):
         otro = ProcesoSeleccion.objects.create(
             nombre="Luis", apellidos="Ventas", cedula="998811", celular="3009998811",
             fecha_llegada=date.today(), vacante="Ventas",
-            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            creado_por=self.usuarios[Perfil.Rol.VINCULACION],
         )
-        otro.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa"
+        self._registrar_decision(
+            otro, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, "No continúa"
         )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:indicadores"), {
@@ -1110,11 +1359,11 @@ class FlujoProcesoTests(TestCase):
         self.assertContains(response, "Estado: En curso")
         self.assertContains(response, "Área/etapa: Talento Humano")
 
-    def test_indicadores_permiten_escribir_vacante_sin_importar_mayusculas(self):
+    def test_enlaces_anteriores_indicadores_conservan_filtro_vacante_sin_importar_mayusculas(self):
         ProcesoSeleccion.objects.create(
             nombre="Luis", apellidos="Ventas", cedula="998822", celular="3009998822",
             fecha_llegada=date.today(), vacante="Ventas",
-            creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+            creado_por=self.usuarios[Perfil.Rol.VINCULACION],
         )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:indicadores"))
@@ -1137,7 +1386,7 @@ class FlujoProcesoTests(TestCase):
             ProcesoSeleccion.objects.create(
                 nombre=f"Ventas {indice:02d}", apellidos="Prueba", cedula=f"771{indice:03d}",
                 celular="3001234567", fecha_llegada=date.today(), vacante="Ventas",
-                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+                creado_por=self.usuarios[Perfil.Rol.VINCULACION],
             )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         parametros = {
@@ -1165,7 +1414,7 @@ class FlujoProcesoTests(TestCase):
             ProcesoSeleccion.objects.create(
                 nombre=f"Persona {indice}", apellidos="Prueba", cedula=f"882{indice:03d}",
                 celular="3001234567", fecha_llegada=date.today(), vacante=vacante,
-                creado_por=self.usuarios[Perfil.Rol.CONTRATACION],
+                creado_por=self.usuarios[Perfil.Rol.VINCULACION],
             )
         seguimiento = self.proceso.seguimientos.get()
         seguimiento.inicio = timezone.make_aware(datetime(2026, 9, 8, 7, 0))
@@ -1178,8 +1427,8 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(indicadores["vacante_mas_candidatos"], {"vacante": "VENTAS", "cantidad": 2})
         self.assertEqual(indicadores["area_mas_demorada"]["etapa"], "Talento Humano")
         self.assertEqual(indicadores["area_mas_demorada"]["promedio_horas"], 5.0)
-        self.assertContains(response, "distribution-donut")
-        self.assertContains(response, "Etapa más demorada")
+        self.assertContains(response, 'data-chart="vacantes"')
+        self.assertContains(response, 'data-chart="etapas"')
 
     def test_indicadores_calculan_promedio_y_mediana_por_etapa(self):
         seguimiento = self.proceso.seguimientos.get()
@@ -1237,8 +1486,8 @@ class FlujoProcesoTests(TestCase):
         from .reportes import _detalle_rechazos_pdf
 
         motivo = "No apto en entrevista de validación"
-        self.proceso.registrar_decision(
-            self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, motivo,
+        self._registrar_decision(
+            self.proceso, self.usuarios[Perfil.Rol.RRHH], Decision.Resultado.RECHAZADO, motivo,
         )
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         filtros = {"estado": ProcesoSeleccion.Estado.RECHAZADO}

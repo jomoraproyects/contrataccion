@@ -13,7 +13,7 @@ def proteger_accesos_esenciales(sender, instance, **kwargs):
     if not instance.pk:
         return
     rol = Perfil.objects.filter(usuario_id=instance.pk).values_list("rol", flat=True).first()
-    if rol in (Perfil.Rol.GERENTE, Perfil.Rol.CONTRATACION):
+    if rol in (Perfil.Rol.GERENTE, Perfil.Rol.VINCULACION, Perfil.Rol.CONTRATACION):
         instance.is_active = True
 
 

@@ -2,7 +2,7 @@
 {% block title %}{{ titulo }}{% endblock %}
 {% block content %}
 <div class="d-flex flex-column flex-md-row justify-content-between align-items-md-center gap-3 mb-4">
-  <div><p class="eyebrow text-primary mb-1">Gestión de candidatos</p><h1 class="display-6 fw-bold mb-1">{{ titulo }}</h1><p class="fs-5 text-secondary mb-0">{{ descripcion }}</p></div>
+  <div><p class="eyebrow text-primary mb-1">{% if rol_usuario == 'VINCULACION' %}Vinculación · registro y seguimiento{% else %}Gestión de candidatos{% endif %}</p><h1 class="display-6 fw-bold mb-1">{{ titulo }}</h1><p class="fs-5 text-secondary mb-0">{{ descripcion }}</p></div>
   {% if puede_crear %}<a class="btn btn-success btn-lg px-4 py-3 fw-bold" href="{% url 'procesos:crear' %}">+ Añadir nuevo proceso</a>{% endif %}
 </div>
 
@@ -39,7 +39,7 @@
       {% for proceso in procesos %}
         <tr>
           <td><div class="person-cell"><span class="person-avatar" aria-hidden="true">{{ proceso.nombre|first|upper }}{{ proceso.apellidos|first|upper }}</span><strong>{{ proceso.nombre_completo }}</strong></div></td><td>{{ proceso.cedula }}</td><td>{{ proceso.vacante }}</td>
-          {% if mostrar_rechazo %}<td><span class="badge rounded-pill status-rechazado">{{ proceso.etapa_rechazo }}</span></td><td>{{ proceso.motivo_rechazo }}</td>{% else %}<td>{{ proceso.get_etapa_actual_display }}</td><td><span class="badge rounded-pill status-{{ proceso.estado|lower }}">{{ proceso.get_estado_display }}</span></td>{% endif %}
+          {% if mostrar_rechazo %}<td><span class="badge rounded-pill status-rechazado">{{ proceso.etapa_rechazo }}</span></td><td>{% if proceso.requisitos_rechazo %}<strong class="d-block mb-1">No cumplió: {{ proceso.requisitos_rechazo|join:", " }}</strong>{% endif %}{{ proceso.motivo_rechazo }}</td>{% else %}<td>{{ proceso.get_etapa_actual_display }}</td><td><span class="badge rounded-pill status-{{ proceso.estado|lower }}">{{ proceso.get_estado_display }}</span></td>{% endif %}
           {% if mostrar_tiempos %}<td><strong>{{ proceso.duracion_total_legible }}</strong></td><td><span class="badge rounded-pill text-bg-info">{{ proceso.cumplimiento_etapas }}</span></td>{% endif %}
           <td>{{ proceso.fecha_llegada|date:"d/m/Y" }}</td>
           <td class="text-end"><a class="btn btn-outline-primary btn-lg" href="{% url 'procesos:detalle' proceso.pk %}">Ver detalle</a></td>
