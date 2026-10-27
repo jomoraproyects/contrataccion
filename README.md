@@ -9,7 +9,7 @@ Permite registrar candidatos, llevarlos por Talento Humano, Psicología, Segurid
 - Registro de candidatos sin adjuntar hojas de vida.
 - Flujo secuencial sin saltar etapas.
 - Aprobación o rechazo con observación obligatoria.
-- Lista de verificación por etapa: cinco requisitos en Talento Humano, entrevista y prueba psicotécnica en Psicología, y examen de ingreso en SST. Cada requisito se registra como Cumple o No cumple.
+- Lista de verificación por etapa: cinco requisitos en Talento Humano; entrevista y prueba psicotécnica en Psicología; y en SST, Examen Panel X5, radiografía de columna, electromiografía y examen osteomuscular. Cada requisito se registra como Cumple o No cumple.
 - Alertas dentro del sistema y tiempo laboral restante, contado de 7:00 a. m. a 4:00 p. m. en días hábiles.
 - Validación de cédulas al crear un candidato: evita nuevos registros si existe un proceso previo y muestra la etapa y el motivo del rechazo anterior.
 - Historial de decisiones y trazabilidad resumida por candidato para Gerencia.

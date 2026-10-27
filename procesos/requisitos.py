@@ -19,7 +19,12 @@ REQUISITOS_ETAPA = {
         {"codigo": "entrevista", "nombre": "Entrevista"},
         {"codigo": "prueba_psicotecnica", "nombre": "Prueba psicotécnica"},
     ),
-    "SEGURIDAD": ({"codigo": "examen_ingreso", "nombre": "Examen de ingreso"},),
+    "SEGURIDAD": (
+        {"codigo": "panel_x5", "nombre": "Examen Panel X5"},
+        {"codigo": "radiografia_columna", "nombre": "Radiografía de columna"},
+        {"codigo": "electromiografia", "nombre": "Electromiografía"},
+        {"codigo": "examen_osteomuscular", "nombre": "Examen osteomuscular"},
+    ),
 }
 
 

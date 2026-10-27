@@ -53,7 +53,7 @@ class ChecklistEtapasTests(TestCase):
 
     def test_flujo_completo_con_lista_de_cada_area_y_contratacion_sin_lista(self):
         proceso = self.crear_proceso()
-        for etapa, cantidad in (("RRHH", 5), ("PSICOLOGIA", 2), ("SEGURIDAD", 1)):
+        for etapa, cantidad in (("RRHH", 5), ("PSICOLOGIA", 2), ("SEGURIDAD", 4)):
             decision = self.decidir(proceso, verificaciones=self.respuestas(etapa))
             decision.refresh_from_db()
             self.assertEqual(decision.verificaciones["version"], 1)
@@ -109,14 +109,26 @@ class ChecklistEtapasTests(TestCase):
                 self.decidir(proceso, verificaciones=respuestas)
         self.assert_sin_decision(proceso)
 
-    def test_sst_puede_rechazar_examen_y_preserva_motivo(self):
+    def test_sst_puede_rechazar_un_examen_y_preserva_motivo(self):
         proceso = self.crear_proceso("SEGURIDAD")
-        decision = self.decidir(proceso, Decision.Resultado.RECHAZADO, {"examen_ingreso": NO_CUMPLE})
+        decision = self.decidir(
+            proceso, Decision.Resultado.RECHAZADO,
+            self.respuestas("SEGURIDAD", falla="radiografia_columna"),
+        )
         self.assertEqual(proceso.estado, ProcesoSeleccion.Estado.RECHAZADO)
-        self.assertEqual(proceso.requisitos_rechazo, ["Examen de ingreso"])
+        self.assertEqual(proceso.requisitos_rechazo, ["Radiografía de columna"])
         self.assertEqual(proceso.motivo_rechazo, "Revisión realizada por el área")
-        self.assertEqual(decision.requisitos_verificados[0]["estado"], "No cumple")
+        self.assertEqual(len(decision.requisitos_verificados), 4)
+        self.assertEqual(decision.requisitos_verificados[1]["estado"], "No cumple")
         self.assertFalse(proceso.seguimientos.filter(fin__isnull=True).exists())
+
+    def test_sst_no_aprueba_si_falta_un_examen(self):
+        proceso = self.crear_proceso("SEGURIDAD")
+        respuestas = self.respuestas("SEGURIDAD")
+        respuestas.pop("electromiografia")
+        with self.assertRaises(ValidationError):
+            self.decidir(proceso, verificaciones=respuestas)
+        self.assert_sin_decision(proceso)
 
     def test_observacion_obligatoria_tambien_con_todo_verificado(self):
         proceso = self.crear_proceso()
@@ -135,9 +147,16 @@ class ChecklistEtapasTests(TestCase):
             )
         self.assert_sin_decision(proceso)
 
-    def test_snapshot_historico_no_cambia_al_actualizar_catalogo(self):
+    def test_snapshot_historico_de_examen_anterior_no_cambia_con_el_catalogo_nuevo(self):
         proceso = self.crear_proceso("SEGURIDAD")
-        decision = self.decidir(proceso, verificaciones={"examen_ingreso": CUMPLE})
+        decision = Decision.objects.create(
+            proceso=proceso, etapa="SEGURIDAD", resultado=Decision.Resultado.APROBADO,
+            observacion="Examen de ingreso verificado anteriormente",
+            decidido_por=self.usuarios["SEGURIDAD"],
+            verificaciones={"version": 1, "requisitos": [
+                {"codigo": "examen_ingreso", "nombre": "Examen de ingreso", "resultado": CUMPLE},
+            ]},
+        )
         with patch("procesos.requisitos.REQUISITOS_ETAPA", {}):
             decision.refresh_from_db()
             self.assertEqual(decision.requisitos_verificados[0]["nombre"], "Examen de ingreso")
@@ -175,15 +194,15 @@ class ChecklistEtapasTests(TestCase):
     def test_formulario_rechazo_exige_fallo_y_observacion(self):
         datos = {
             "resultado": "RECHAZADO", "observacion": "No apto para el cargo",
-            "requisito_examen_ingreso": CUMPLE,
+            **{f"requisito_{codigo}": resultado for codigo, resultado in self.respuestas("SEGURIDAD").items()},
         }
         form = DecisionForm(datos, etapa="SEGURIDAD")
         self.assertFalse(form.is_valid())
         self.assertIn("resultado", form.errors)
-        datos["requisito_examen_ingreso"] = NO_CUMPLE
+        datos["requisito_radiografia_columna"] = NO_CUMPLE
         form = DecisionForm(datos, etapa="SEGURIDAD")
         self.assertTrue(form.is_valid(), form.errors)
-        self.assertEqual(form.cleaned_data["verificaciones"], {"examen_ingreso": NO_CUMPLE})
+        self.assertEqual(form.cleaned_data["verificaciones"], self.respuestas("SEGURIDAD", falla="radiografia_columna"))
         datos["observacion"] = ""
         self.assertFalse(DecisionForm(datos, etapa="SEGURIDAD").is_valid())
 
