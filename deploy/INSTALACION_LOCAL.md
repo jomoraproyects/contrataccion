@@ -87,18 +87,10 @@ cifrada y pruebe la restauración trimestralmente en una base aislada.
 
 ## Actualizaciones controladas
 
-```bash
-cd /var/www/seleccion
-sudo -u seleccion git pull --ff-only origin main
-sudo -u seleccion .venv/bin/pip install -r requirements.txt
-sudo -u seleccion env DATABASE_URL='mysql://seleccion_migracion:CLAVE@127.0.0.1:3306/seleccion?charset=utf8mb4' .venv/bin/python manage.py migrate --noinput
-sudo -u seleccion .venv/bin/python manage.py collectstatic --noinput
-sudo -u seleccion .venv/bin/python manage.py check --deploy
-sudo systemctl restart seleccion
-```
-
-Antes de actualizar, genere un respaldo y confirme que el repositorio no contiene
-archivos `.env`, bases SQLite, claves ni datos reales.
+La instalación actual de Serviciudad tiene el repositorio en
+`/var/www/seleccion/app` y el entorno virtual en `/var/www/seleccion/.venv`.
+Siga [ACTUALIZAR_SERVIDOR.md](ACTUALIZAR_SERVIDOR.md) para actualizarla. No use
+las rutas del ejemplo de instalación inicial para hacer `git pull` en ese servidor.
 
 ## Comprobación de entrega
 

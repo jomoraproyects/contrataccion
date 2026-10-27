@@ -160,7 +160,7 @@ class FlujoProcesoTests(TestCase):
     def test_estilos_principales_tienen_version_para_evitar_cache_antigua(self):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         response = self.client.get(reverse("procesos:trazabilidad"))
-        self.assertContains(response, "css/app.css?v=20261023.2")
+        self.assertContains(response, "css/app.css?v=")
 
     def test_trazabilidad_filtra_por_fecha_estado_nombre_y_vacante(self):
         otro = ProcesoSeleccion.objects.create(
