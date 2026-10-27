@@ -1,43 +1,52 @@
 {% extends "base.html" %}
 {% load static %}
 {% block title %}Ingresar | Selección de Personal{% endblock %}
+{% block main_classes %}login-main{% endblock %}
 {% block content %}
-<button class="btn btn-theme login-theme-toggle btn-lg" type="button" data-theme-toggle aria-label="Activar modo oscuro" title="Cambiar tema"><span aria-hidden="true" data-theme-icon>◐</span></button>
-<div class="login-wrapper d-flex align-items-center justify-content-center py-4">
-  <section class="login-card-simple card border-0" aria-labelledby="titulo-login">
-    <header class="login-header">
-      <div class="login-brand"><img src="{% static 'img/serviciudad.jpg' %}" alt="Logo de Serviciudad" width="72" height="72"></div>
-      <div>
-        <p class="login-company mb-1">SERVICIUDAD</p>
-        <h1 id="titulo-login" class="login-title mb-0">Selección de Personal</h1>
-      </div>
-    </header>
+<button class="btn btn-theme login-theme-toggle" type="button" data-theme-toggle aria-label="Activar modo oscuro" title="Cambiar tema"><span aria-hidden="true" data-theme-icon>◐</span></button>
+<div class="login-wrapper">
+  <section class="login-story" aria-label="Presentación de Selección de Personal">
+    <div class="login-story-orbit" aria-hidden="true"></div>
+    <div class="login-brand">
+      <img src="{% static 'img/serviciudad.jpg' %}" alt="Logo de Serviciudad" width="60" height="60">
+      <div><span>ACUEDUCTO · ASEO · ALCANTARILLADO</span><strong>SERVICIUDAD</strong></div>
+    </div>
+    <h1 class="login-story-title">Seguimiento de cada etapa</h1>
+    <div class="login-stages">
+      <strong>UN PROCESO, CINCO ETAPAS</strong>
+      <ol aria-label="Etapas del proceso"><li>Vinculación</li><li>Talento Humano</li><li>Psicología</li><li>SST</li><li>Contratación</li></ol>
+    </div>
+  </section>
+  <section class="login-panel" aria-labelledby="titulo-login">
     <div class="login-content">
+      <p class="login-section-label">SELECCIÓN DE PERSONAL</p>
+      <h2 id="titulo-login">Bienvenido</h2>
+      <p class="login-subtitle">Ingresa con las credenciales asignadas a tu área.</p>
       {% if acceso_bloqueado %}<div class="alert alert-danger" role="alert" tabindex="-1" data-error-summary><strong>Acceso bloqueado temporalmente.</strong><br>Alcanzó el límite de intentos. Intente nuevamente en aproximadamente {{ minutos_bloqueo }} minuto{{ minutos_bloqueo|pluralize }}.</div>
       {% elif credenciales_invalidas %}<div class="alert alert-danger" role="alert" tabindex="-1" data-error-summary><strong>No fue posible ingresar.</strong><br>El usuario o la contraseña no son correctos.{% if intentos_restantes is not None %} Le quedan <strong>{{ intentos_restantes }}</strong> intento{{ intentos_restantes|pluralize }} antes del bloqueo temporal.{% endif %}</div>{% endif %}
-
       <form method="post" data-submit-once>
         {% csrf_token %}
         {% if next %}<input type="hidden" name="next" value="{{ next }}">{% endif %}
-        <div class="mb-4">
-          <label class="form-label fw-semibold" for="id_username">Usuario</label>
+        <div class="login-form-group">
+          <label for="id_username">Usuario</label>
           <div class="login-field login-field-user">
             <span class="login-input-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="3.5"/><path d="M5 20v-1.5a7 7 0 0 1 14 0V20"/></svg></span>
-            <input class="form-control form-control-lg" type="text" name="username" value="{{ form.username.value|default:'' }}" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required id="id_username" placeholder="Usuario">
+            <input class="form-control" type="text" name="username" value="{{ form.username.value|default:'' }}" autocomplete="username" autocapitalize="none" spellcheck="false" autofocus required id="id_username" placeholder="Escribe tu usuario">
           </div>
         </div>
-        <div class="mb-4">
-          <label class="form-label fw-semibold" for="id_password">Contraseña</label>
+        <div class="login-form-group">
+          <label for="id_password">Contraseña</label>
           <div class="login-field login-field-password">
-            <input class="form-control form-control-lg" type="password" name="password" autocomplete="current-password" required id="id_password" placeholder="Contraseña">
             <span class="login-input-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
+            <input class="form-control" type="password" name="password" autocomplete="current-password" required id="id_password" placeholder="Escribe tu contraseña">
+            <button class="btn login-password-toggle" type="button" data-password-toggle aria-controls="id_password" aria-pressed="false">Mostrar</button>
           </div>
-          <button class="btn login-password-toggle" type="button" data-password-toggle aria-controls="id_password" aria-pressed="false">Mostrar</button>
         </div>
-        <button class="btn btn-lg w-100 py-3 fw-bold login-submit" type="submit" data-loading-text="Ingresando…"><span data-submit-label>Ingresar</span></button>
+        <button class="btn login-submit" type="submit" data-loading-text="Ingresando…"><span data-submit-label>Ingresar al sistema</span></button>
       </form>
-      <p class="login-support mb-0">¿Olvidó sus datos de acceso? Comuníquese con Gerencia.</p>
+      <p class="login-support">¿Necesitas ayuda para ingresar? Comunícate con Gerencia.</p>
     </div>
+    <p class="login-footnote">Acceso exclusivo para personal autorizado</p>
   </section>
 </div>
 {% endblock %}

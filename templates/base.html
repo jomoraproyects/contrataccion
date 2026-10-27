@@ -10,7 +10,7 @@
   <link rel="icon" href="{% static 'img/serviciudad.jpg' %}" type="image/jpeg">
   <script src="{% static 'js/theme-init.js' %}"></script>
   <link href="{% static 'vendor/bootstrap/bootstrap.min.css' %}" rel="stylesheet">
-  <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20261023.2">
+  <link rel="stylesheet" href="{% static 'css/app.css' %}?v=20261027.1">
 </head>
 <body>
 <a class="skip-link" href="#contenido-principal">Saltar al contenido principal</a>
@@ -47,7 +47,7 @@
   </div>
 </nav>
 {% endif %}
-<main id="contenido-principal" class="container-fluid px-3 px-lg-5 py-4" tabindex="-1">
+<main id="contenido-principal" class="{% block main_classes %}container-fluid px-3 px-lg-5 py-4{% endblock %}" tabindex="-1">
   <div aria-live="polite" aria-atomic="true">{% for message in messages %}<div class="alert alert-{{ message.tags|default:'info' }} fs-5" role="status">{{ message }}</div>{% endfor %}</div>
   {% if alerta_asignacion %}<aside class="global-work-alert alert alert-{{ alerta_asignacion.clase_plazo }}" role="alert" aria-labelledby="alerta-trabajo-titulo"><div class="global-work-icon" aria-hidden="true">!</div><div class="flex-grow-1"><h2 id="alerta-trabajo-titulo" class="h4 fw-bold mb-1">Tiene {{ asignaciones_pendientes }} proceso{{ asignaciones_pendientes|pluralize }} pendiente{{ asignaciones_pendientes|pluralize }} en {{ rol_usuario_nombre }}</h2><p class="mb-1">El más urgente es <strong>{{ alerta_asignacion.proceso.nombre_completo }}</strong> para {{ alerta_asignacion.proceso.vacante }}.</p><p class="mb-0"><strong>{{ alerta_asignacion.estado_plazo }}</strong> · Fecha límite: {{ alerta_asignacion.fecha_limite|date:"d/m/Y H:i" }}</p></div><a class="btn btn-dark btn-lg align-self-center" href="{% url 'procesos:lista' %}#titulo-asignaciones">Ver pendientes</a></aside>
   {% elif rol_usuario == 'GERENTE' and procesos_vencidos_gerencia or rol_usuario == 'GERENTE' and procesos_por_vencer_gerencia %}<aside class="global-work-alert alert {% if procesos_vencidos_gerencia %}alert-danger{% else %}alert-warning{% endif %}" role="alert"><div class="global-work-icon" aria-hidden="true">!</div><div class="flex-grow-1"><h2 class="h4 fw-bold mb-1">Alerta de tiempos para Gerencia</h2><p class="mb-0"><strong>{{ procesos_vencidos_gerencia }}</strong> etapa{{ procesos_vencidos_gerencia|pluralize }} vencida{{ procesos_vencidos_gerencia|pluralize }} y <strong>{{ procesos_por_vencer_gerencia }}</strong> próxima{{ procesos_por_vencer_gerencia|pluralize }} a vencer.</p></div><a class="btn btn-dark btn-lg align-self-center" href="{% url 'procesos:trazabilidad' %}">Revisar trazabilidad</a></aside>{% endif %}
