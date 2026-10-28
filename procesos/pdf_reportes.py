@@ -75,6 +75,9 @@ def _tabla_candidatos(cabeceras, procesos, filas, proporciones, documento, estil
                 f"<b>Motivo de rechazo - {escape(str(etapa))}:</b><br/>"
                 + escape(str(motivo)).replace("\r\n", "\n").replace("\n", "<br/>")
             )
+            requisitos = getattr(proceso, "requisitos_rechazo", ())
+            if requisitos:
+                texto += "<br/><b>Validaciones no cumplidas:</b> " + escape(", ".join(requisitos))
             datos.append([Paragraph(texto, estilos["BodyText"])] + [""] * (len(cabeceras) - 1))
         grupos.append((inicio, len(datos), indice))
     tabla = _tabla(cabeceras, datos, proporciones, documento.width, estilos)

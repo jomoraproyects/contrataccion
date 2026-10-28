@@ -52,7 +52,7 @@ class SeparacionPanelesTests(TestCase):
 
 class DisenoPDFTests(SimpleTestCase):
     def test_motivo_esta_debajo_de_su_candidato_y_antes_del_siguiente(self):
-        rechazado = SimpleNamespace(estado="RECHAZADO", etapa_rechazo="Psicología", motivo_rechazo="Observación <b>literal</b> & texto seguro")
+        rechazado = SimpleNamespace(estado="RECHAZADO", etapa_rechazo="Psicología", motivo_rechazo="Observación <b>literal</b> & texto seguro", requisitos_rechazo=["Prueba psicotécnica"])
         pendiente = SimpleNamespace(estado="EN_CURSO")
         tabla = _tabla_candidatos(
             ["Candidato", "Estado"], [rechazado, pendiente],
@@ -66,6 +66,7 @@ class DisenoPDFTests(SimpleTestCase):
         self.assertEqual(texto(1), "Primera persona")
         self.assertIn("Motivo de rechazo - Psicología:", texto(2))
         self.assertIn("<b>literal</b> & texto seguro", texto(2))
+        self.assertIn("Validaciones no cumplidas: Prueba psicotécnica", texto(2))
         self.assertEqual(texto(3), "Segunda persona")
         self.assertIn(("SPAN", (0, 2), (-1, 2)), tabla._spanCmds)
         self.assertEqual(tabla.splitInRow, 0)
