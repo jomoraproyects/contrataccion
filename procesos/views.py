@@ -181,12 +181,23 @@ def _contexto_lista(request, queryset, titulo, descripcion):
     }
 
 
-def _procesos_indicadores(request, formulario):
+def _procesos_indicadores(request, formulario, incluir_fechas=True):
     base = _procesos_visibles(
         request.user,
         ProcesoSeleccion.objects.filter(activo=True).select_related("creado_por").prefetch_related("seguimientos"),
     )
-    return filtrar_procesos_por_fecha(base, formulario).order_by("-fecha_llegada", "-creado_en", "-pk")
+    return filtrar_procesos_por_fecha(base, formulario, incluir_fechas=incluir_fechas).order_by("-fecha_llegada", "-creado_en", "-pk")
+
+
+def _resumen_indicadores(request, formulario, procesos):
+    from .historicos import calcular_historico
+
+    datos = formulario.cleaned_data if formulario.is_valid() else {}
+    resumen = calcular_indicadores(procesos, datos)
+    historico = calcular_historico(_procesos_indicadores(request, formulario, incluir_fechas=False), datos)
+    resumen["historico"] = historico
+    resumen["graficas"]["historico"] = historico
+    return resumen
 
 
 def _opciones_paginacion(pagina):
@@ -508,9 +519,16 @@ def indicadores(request):
     _exigir_roles(request, Perfil.Rol.GERENTE, Perfil.Rol.VINCULACION, Perfil.Rol.CONTRATACION)
     formulario = IndicadoresFiltroForm(request.GET)
     procesos = list(_procesos_indicadores(request, formulario)) if formulario.is_valid() else []
-    resumen = calcular_indicadores(procesos, formulario.cleaned_data if formulario.is_valid() else None)
+    resumen = _resumen_indicadores(request, formulario, procesos)
     parametros = request.GET.copy()
     parametros.pop("page", None)
+    parametros.pop("informe", None)
+    if formulario.is_valid():
+        # Fija el periodo resuelto, incluso si se abrió el panel sin parámetros.
+        # Así una descarga posterior no cambia de mes por pasar medianoche.
+        for nombre, valor in formulario.cleaned_data.items():
+            if valor is not None:
+                parametros[nombre] = str(valor)
     filtros_trazabilidad = {
         nombre: str(formulario.cleaned_data[nombre])
         for nombre in ("q", "fecha_desde", "fecha_hasta", "estado", "etapa", "vacante")
@@ -535,18 +553,20 @@ def exportar_indicadores(request, formato):
     if not formulario.is_valid():
         return HttpResponseBadRequest("El rango de fechas no es válido.")
     procesos = list(_procesos_indicadores(request, formulario))
-    resumen = calcular_indicadores(procesos, formulario.cleaned_data)
+    resumen = _resumen_indicadores(request, formulario, procesos)
     rango = _rango_indicadores(formulario)
     parametros = request.GET.urlencode()
     volver_a = reverse("procesos:indicadores")
     if parametros:
         volver_a = f"{volver_a}?{parametros}"
+    estadistico = request.GET.get("informe") == "estadistico"
+    from .exportar_estadisticas import excel_estadistico, pdf_estadistico
     return _respuesta_exportacion(
         request,
         formato,
-        lambda: exportar_excel(procesos, resumen, rango),
-        lambda: exportar_pdf(procesos, resumen, rango),
-        _nombre_exportacion_indicadores(formulario),
+        lambda: excel_estadistico(procesos, resumen, rango) if estadistico else exportar_excel(procesos, resumen, rango),
+        lambda: pdf_estadistico(resumen, rango) if estadistico else exportar_pdf(procesos, resumen, rango),
+        ("indicadores-" if estadistico else "") + _nombre_exportacion_indicadores(formulario),
         volver_a,
     )
 

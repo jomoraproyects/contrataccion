@@ -1272,7 +1272,7 @@ class FlujoProcesoTests(TestCase):
                 self.assertEqual(response.status_code, 200)
                 self.assertContains(response, "Comportamiento por etapa")
                 self.assertNotContains(response, "Candidatos filtrados")
-                self.assertContains(response, "Tiempo promedio por etapa")
+                self.assertContains(response, "Tiempo de gestión por etapa")
                 self.assertNotContains(response, 'data-chart="tendencia"')
                 self.assertNotContains(response, "Ver datos del periodo")
                 self.assertContains(response, "Vacantes con más candidatos")

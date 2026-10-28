@@ -14,13 +14,14 @@ class Element {
   addEventListener() {}
 }
 
-function render(vacantes) {
+function render(vacantes, extra = {}, all = false) {
   const source = new Element("script");
-  source.textContent = JSON.stringify({ total: vacantes.length ? 8 : 0, estados: [], vacantes, etapas: [] });
+  source.textContent = JSON.stringify({ total: vacantes.length ? 8 : 0, estados: [], vacantes, etapas: [], ...extra });
   const selectors = Object.fromEntries([
     '[data-chart="estados"]', '[data-chart="vacantes"]', '[data-chart="etapas"]',
     '[data-chart="cumplimiento"]', '[data-chart-legend]', '[data-stage-measure]',
     '[data-analytics-filters]', '[data-period-help]',
+    '[data-chart="historico"]', '[data-chart="rechazos"]', '[data-rejection-legend]',
   ].map((selector) => [selector, new Element("div")]));
   selectors['[data-analytics-filters]'].elements = {periodo: Object.assign(new Element("select"), {value: "mensual"})};
   const document = {
@@ -35,7 +36,7 @@ function render(vacantes) {
   };
   const script = fs.readFileSync(path.join(__dirname, "../../static/js/indicadores.js"), "utf8");
   vm.runInNewContext(script, {document, Intl});
-  return selectors['[data-chart="vacantes"]'];
+  return all ? selectors : selectors['[data-chart="vacantes"]'];
 }
 
 test("nombres completos fuera del SVG, cantidades y barras proporcionales", () => {
@@ -60,4 +61,29 @@ test("etiquetas se escriben como texto, nunca como HTML", () => {
 
 test("periodo sin candidatos conserva estado vacío sin errores", () => {
   assert.match(render([]).children[0].textContent, /No hay candidatos/);
+});
+
+test("dona de rechazos muestra su propio total, sin confundirlo con todos los candidatos", () => {
+  const selectores = render([], {total: 20, rechazos: [{etiqueta: "Psicología", cantidad: 2}, {etiqueta: "SST", cantidad: 3}]}, true);
+  const svg = selectores['[data-chart="rechazos"]'].children[0];
+  assert.equal(svg.tag, "svg");
+  assert.equal(svg.children.filter((c) => c.attributes.class === "chart-total")[0].textContent, "5");
+  const leyenda = selectores['[data-rejection-legend]'].children;
+  assert.equal(leyenda[0].children[3].textContent, "40%");
+  assert.equal(leyenda[1].children[3].textContent, "60%");
+});
+
+test("histórico agrupa tres series con escala compartida y sin falsear los ceros", () => {
+  const selectores = render([], {historico: {filas: [{etiqueta: "09/2026", recibidos: 8, contratados: 4, rechazados: 0}, {etiqueta: "10/2026", recibidos: 4, contratados: 2, rechazados: 1}]}}, true);
+  const svg = selectores['[data-chart="historico"]'].children[0];
+  const barras = svg.children.filter(c => c.tag === "rect");
+  assert.equal(barras.length, 6);
+  assert.equal(Number(barras[0].attributes.height), Number(barras[1].attributes.height) * 2);
+  assert.equal(Number(barras[2].attributes.height), 0);
+  assert.equal(barras[2].attributes['aria-label'], "09/2026. Rechazados: 0");
+});
+
+test("histórico informa rangos excesivos sin romper las otras gráficas", () => {
+  const selectores = render([], {historico: {filas: [], error: "Agrupe por año"}}, true);
+  assert.equal(selectores['[data-chart="historico"]'].children[0].textContent, "Agrupe por año");
 });

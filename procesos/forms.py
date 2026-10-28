@@ -240,8 +240,11 @@ class TrazabilidadFiltroForm(forms.Form):
 
 
 class IndicadoresFiltroForm(forms.Form):
+    agrupacion = forms.ChoiceField(label="Ver histórico por", required=False, choices=[
+        ("semanal", "Semana"), ("mensual", "Mes"), ("anual", "Año"),
+    ])
     periodo = forms.ChoiceField(label="Periodo del informe", required=False, choices=[
-        ("mensual", "Mensual"), ("semanal", "Semanal"), ("anual", "Anual"),
+        ("mensual", "Mensual"), ("semanal", "Semanal"), ("anual", "Anual"), ("personalizado", "Entre fechas"),
     ])
     semana = forms.CharField(label="Semana", required=False, widget=forms.TextInput(attrs={"type": "week"}))
     mes = forms.CharField(label="Mes", required=False, widget=forms.TextInput(attrs={"type": "month"}))
@@ -272,9 +275,9 @@ class IndicadoresFiltroForm(forms.Form):
     def __init__(self, *args, **kwargs):
         hoy = timezone.localdate()
         iso = hoy.isocalendar()
-        valores = {"periodo": "mensual", "semana": f"{iso.year}-W{iso.week:02d}", "mes": hoy.strftime("%Y-%m"), "anio": hoy.year}
+        valores = {"periodo": "mensual", "semana": f"{iso.year}-W{iso.week:02d}", "mes": hoy.strftime("%Y-%m"), "anio": hoy.year, "agrupacion": "mensual"}
         entrada = args[0] if args else kwargs.get("data")
-        # Mantiene enlaces históricos de reportes; el formulario solo ofrece periodos.
+        # Conserva los enlaces históricos que solo contienen fechas.
         self.rango_anterior = bool(entrada and "periodo" not in entrada and (entrada.get("fecha_desde") or entrada.get("fecha_hasta")))
         if entrada is not None:
             entrada = entrada.copy()
@@ -285,6 +288,9 @@ class IndicadoresFiltroForm(forms.Form):
             else:
                 kwargs["data"] = entrada
         super().__init__(*args, **kwargs)
+        if self.rango_anterior:
+            self.data = self.data.copy()
+            self.data["periodo"] = "personalizado"
         for nombre, valor in valores.items():
             self.fields[nombre].initial = valor
         self.fields["q"].widget.attrs["placeholder"] = "Ejemplo: Ana o 123456"
@@ -297,9 +303,11 @@ class IndicadoresFiltroForm(forms.Form):
                 else "form-control form-control-lg"
             )
 
+        self.fields["agrupacion"].widget.attrs.update({"form": "filtros-indicadores", "class": "form-select analytics-chart-select"})
+
     def clean(self):
         datos = super().clean()
-        if not self.rango_anterior:
+        if not self.rango_anterior and datos.get("periodo") != "personalizado":
             periodo = datos.get("periodo") or "mensual"
             try:
                 if periodo == "semanal":
@@ -321,6 +329,8 @@ class IndicadoresFiltroForm(forms.Form):
         else:
             datos["periodo"] = "personalizado"
         desde, hasta = datos.get("fecha_desde"), datos.get("fecha_hasta")
+        if datos.get("periodo") == "personalizado" and not self.rango_anterior and (not desde or not hasta):
+            raise forms.ValidationError("Seleccione la fecha inicial y la fecha final.")
         if desde and hasta and desde > hasta:
             raise forms.ValidationError("La fecha inicial no puede ser posterior a la fecha final.")
         return datos

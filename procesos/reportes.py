@@ -11,7 +11,7 @@ from .calendario import SEGUNDOS_JORNADA_LABORAL
 from .models import PLAZOS_ETAPA_DIAS, ProcesoSeleccion, SeguimientoEtapa
 
 
-def filtrar_procesos_por_fecha(queryset, formulario):
+def filtrar_procesos_por_fecha(queryset, formulario, incluir_fechas=True):
     if not formulario.is_valid():
         return queryset.none()
     desde = formulario.cleaned_data.get("fecha_desde")
@@ -24,9 +24,9 @@ def filtrar_procesos_por_fecha(queryset, formulario):
                 | Q(apellidos__icontains=termino)
                 | Q(cedula__icontains=termino)
             )
-    if desde:
+    if desde and incluir_fechas:
         queryset = queryset.filter(fecha_llegada__gte=desde)
-    if hasta:
+    if hasta and incluir_fechas:
         queryset = queryset.filter(fecha_llegada__lte=hasta)
     estado = formulario.cleaned_data.get("estado")
     etapa = formulario.cleaned_data.get("etapa")
@@ -166,6 +166,10 @@ def calcular_indicadores(procesos, periodo=None):
         {"codigo": valor, "etiqueta": etiqueta, "cantidad": sum(p.estado == valor for p in procesos)}
         for valor, etiqueta in ProcesoSeleccion.Estado.choices
     ]
+    rechazos_etapa = [
+        {"etiqueta": etiqueta, "cantidad": sum(p.estado == ProcesoSeleccion.Estado.RECHAZADO and p.etapa_actual == valor for p in procesos)}
+        for valor, etiqueta in ProcesoSeleccion.Etapa.choices
+    ]
     total_vencidos = sum(item.esta_vencido for item in abiertos)
     cumplimiento = round((len(cerrados) - sum(item.esta_vencido for item in cerrados)) * 100 / len(cerrados)) if cerrados else None
 
@@ -191,6 +195,7 @@ def calcular_indicadores(procesos, periodo=None):
         "etapas_finalizadas": len(cerrados),
         "graficas": {
             "estados": estados,
+            "rechazos": rechazos_etapa,
             "vacantes": [{"etiqueta": item["vacante"], "cantidad": item["cantidad"]} for item in vacantes],
             "tendencia": tendencia,
             "tendencia_titulo": tendencia_titulo,

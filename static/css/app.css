@@ -465,6 +465,10 @@ progress::-moz-progress-bar { border-radius: 999px; }
 .analytics-data .table { min-width: 0; }
 .analytics-dashboard > section.card { overflow: hidden; }
 .analytics-chart-card .card-body { min-width: 0; }
+.analytics-chart-card:not(.analytics-wide) .card-body { display: flex; flex-direction: column; }
+.analytics-chart-card:not(.analytics-wide) .analytics-data { margin-top: auto; padding-top: .8rem; }
+.analytics-chart-card:not(.analytics-wide) .analytics-chart-insight { margin-bottom: 1rem !important; }
+.analytics-vacancies .analytics-chart-heading { min-height: 0; }
 .vacancy-ranking { display: grid; gap: 1.1rem; list-style: none; margin: 0; padding: 0; }
 .vacancy-ranking > li { min-width: 0; }
 .vacancy-ranking-heading { display: flex; align-items: baseline; gap: 1rem; margin-bottom: .4rem; }
@@ -472,6 +476,18 @@ progress::-moz-progress-bar { border-radius: 999px; }
 .vacancy-ranking-heading > strong { flex-shrink: 0; color: var(--app-text); }
 .vacancy-ranking-bar { display: block; width: 100%; height: 14px; }
 .analytics-filters [data-period-input][hidden] { display: none; }
+.analytics-method { padding: 1rem 1.25rem; border: 1px solid var(--app-border); border-radius: .85rem; color: var(--app-muted); font-size: .85rem; line-height: 1.6; background: var(--app-surface-soft); }
+.analytics-method strong { color: var(--app-text); }
+.analytics-history { overflow-x: auto; padding-top: .5rem; }
+.analytics-history .analytics-svg { width: auto; min-width: 100%; height: 300px; }
+.analytics-history-table { max-height: 260px; overflow: auto; }
+.comparison-ranking { list-style: none; padding: 0; margin: 0; display: grid; gap: .85rem; }
+.comparison-ranking li { min-width: 0; }
+.comparison-delta { color: var(--app-muted); font-size: .75rem; font-weight: 500; text-align: right; }
+.comparison-bars { width: 100%; height: auto; display: block; margin-top: .4rem; }
+.comparison-ranking .vacancy-ranking-heading { font-size: .85rem; }
+.analytics-export-menu { margin-top: .7rem; font-size: .8rem; color: var(--app-muted); }
+.analytics-legend li span { overflow-wrap: anywhere; }
 .analytics-metrics { font-size: .9rem; margin: 0; }.analytics-metrics th { font-size: .85rem; }
 .analytics-deadlines { display: flex; align-items: center; flex-wrap: wrap; gap: 1.4rem; border: 1px solid var(--app-border); border-radius: 1rem; background: var(--app-surface); padding: 1.2rem 1.4rem; }
 .analytics-deadlines > div { display: flex; align-items: center; gap: .7rem; }.analytics-deadlines strong { font-size: 1.8rem; color: var(--app-primary-strong); }.analytics-deadlines span { font-size: .85rem; max-width: 175px; color: var(--app-muted); }.analytics-deadlines p { flex-basis: 220px; flex-grow: 1; color: var(--app-muted); }

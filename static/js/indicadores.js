@@ -44,16 +44,19 @@
     return Math.max(1, Math.ceil(value / step) * step);
   }
 
-  function donut() {
-    const container = document.querySelector('[data-chart="estados"]');
-    const legend = document.querySelector("[data-chart-legend]");
-    if (!data.total) { empty(container); return; }
+  function donut(kind, items, caption, legendSelector) {
+    const container = document.querySelector('[data-chart="' + kind + '"]');
+    const legend = document.querySelector(legendSelector);
+    if (!container || !legend) return;
+    legend.replaceChildren();
+    const total = items.reduce((sum, item) => sum + item.cantidad, 0);
+    if (!total) { empty(container, kind === "rechazos" ? "No hay candidatos rechazados con estos filtros." : undefined); return; }
     const svg = canvas(container, 260, 250);
     const radius = 88, circumference = 2 * Math.PI * radius;
     svg.appendChild(node("circle", {cx: 130, cy: 122, r: radius, fill: "none", stroke: "var(--app-border)", "stroke-width": 28}));
     let start = 0;
-    data.estados.forEach((item, i) => {
-      const fraction = item.cantidad / data.total;
+    items.forEach((item, i) => {
+      const fraction = item.cantidad / total;
       if (item.cantidad) {
         const arc = node("circle", {cx: 130, cy: 122, r: radius, fill: "none", stroke: color(i), "stroke-width": 28,
           "stroke-dasharray": (fraction * circumference) + " " + circumference, "stroke-dashoffset": -start * circumference, transform: "rotate(-90 130 122)"});
@@ -68,8 +71,43 @@
       const percentage = document.createElement("small"); percentage.textContent = numbers.format(fraction * 100) + "%";
       li.append(dot, name, value, percentage); legend.appendChild(li);
     });
-    label(svg, 130, 122, numbers.format(data.total), {"text-anchor": "middle", class: "chart-total"});
-    label(svg, 130, 147, "candidatos", {"text-anchor": "middle"});
+    label(svg, 130, 122, numbers.format(total), {"text-anchor": "middle", class: "chart-total"});
+    label(svg, 130, 147, caption, {"text-anchor": "middle"});
+  }
+
+  function history() {
+    const container = document.querySelector('[data-chart="historico"]');
+    if (!container) return;
+    const chart = data.historico;
+    if (!chart || chart.error || !chart.filas.length) { empty(container, chart && chart.error || "No hay datos para construir el histórico."); return; }
+    const series = [["recibidos", "Recibidos", 0], ["contratados", "Contratados", 2], ["rechazados", "Rechazados", 3]];
+    const width = Math.max(680, chart.filas.length * 78 + 75);
+    const svg = canvas(container, width, 300);
+    svg.setAttribute("width", width); svg.setAttribute("height", 300);
+    const left = 42, bottom = 240, top = 20, plot = width - 66;
+    const approximateMaximum = maxAxis(Math.max(1, ...chart.filas.flatMap((item) => series.map(([key]) => item[key]))));
+    const ticks = Math.min(4, approximateMaximum);
+    const maximum = Math.ceil(approximateMaximum / ticks) * ticks;
+    for (let i = 0; i <= ticks; i++) {
+      const value = maximum * i / ticks, y = bottom - (bottom - top) * i / ticks;
+      svg.appendChild(node("line", {x1: left, x2: width - 24, y1: y, y2: y, class: "chart-grid-line"}));
+      label(svg, left - 9, y + 4, numbers.format(value), {"text-anchor": "end"});
+    }
+    const group = plot / chart.filas.length;
+    const barWidth = Math.min(18, group / 5);
+    chart.filas.forEach((item, i) => {
+      const center = left + group * (i + .5);
+      series.forEach(([key, title, index], j) => {
+        const value = item[key], height = value / maximum * (bottom - top);
+        const x = center + (j - 1.5) * (barWidth + 2);
+        const bar = node("rect", {x, y: bottom - height, width: barWidth, height, rx: 3, fill: color(index)});
+        tip(bar, item.etiqueta + ". " + title + ": " + value);
+        svg.appendChild(bar);
+        if (value) label(svg, x + barWidth / 2, bottom - height - 7, numbers.format(value), {"text-anchor": "middle", class: "chart-value-text"});
+      });
+      const parts = item.etiqueta.split(" · ");
+      parts.forEach((part, j) => label(svg, center, bottom + 22 + j * 16, part, {"text-anchor": "middle"}));
+    });
   }
 
   function vacancyBars() {
@@ -169,7 +207,9 @@
     label(svg, left, 269, "0%"); label(svg, left + width, 269, "100%", {"text-anchor": "end"});
   }
 
-  donut(); vacancyBars(); stages("promedio_horas"); compliance();
+  donut("estados", data.estados, "candidatos", "[data-chart-legend]");
+  donut("rechazos", data.rechazos || [], "rechazados", "[data-rejection-legend]");
+  history(); vacancyBars(); stages("mediana_horas"); compliance();
   document.querySelector("[data-stage-measure]").addEventListener("change", (event) => stages(event.target.value));
 
   const form = document.querySelector("[data-analytics-filters]");
@@ -183,6 +223,7 @@
       semanal: "Seleccione la semana. El informe incluye desde el lunes hasta el domingo.",
       mensual: "Seleccione el mes. El informe incluye desde el primer día hasta el último.",
       anual: "Seleccione el año. El informe incluye desde el 1 de enero hasta el 31 de diciembre.",
+      personalizado: "Seleccione desde qué fecha y hasta qué fecha desea consultar (ambas incluidas).",
     }[tipo];
   }
   actualizarPeriodo();

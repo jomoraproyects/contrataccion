@@ -45,7 +45,7 @@ class IndicadoresPanelTests(TestCase):
         hoja = load_workbook(BytesIO(excel.content), read_only=True)["Candidatos"]
         self.assertEqual(hoja.max_row, 3)
         self.assertContains(respuesta, "datos-indicadores")
-        self.assertContains(respuesta, "js/indicadores.js?v=20261028.1")
+        self.assertContains(respuesta, "js/indicadores.js?v=20261028.3")
 
     def test_serie_mensual_continua_y_limitada_a_doce_meses(self):
         self.candidato(1, fecha=date(2025, 1, 1))

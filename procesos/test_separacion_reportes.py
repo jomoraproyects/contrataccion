@@ -49,6 +49,34 @@ class SeparacionPanelesTests(TestCase):
         respuesta = self.client.get(reverse("procesos:indicadores"))
         self.assertNotContains(respuesta, "Ver candidatos de este periodo en Trazabilidad")
 
+    def test_distribucion_de_graficas_no_deja_una_tarjeta_sola_a_media_fila(self):
+        from html.parser import HTMLParser
+
+        class Tarjetas(HTMLParser):
+            def __init__(self):
+                super().__init__()
+                self.actual = None
+                self.graficas = []
+
+            def handle_starttag(self, tag, attrs):
+                attrs = dict(attrs)
+                if tag == "article":
+                    self.actual = {"clases": attrs.get("class", "").split(), "grafica": None}
+                if self.actual is not None and "data-chart" in attrs:
+                    self.actual["grafica"] = attrs["data-chart"]
+
+            def handle_endtag(self, tag):
+                if tag == "article" and self.actual is not None:
+                    if self.actual["grafica"]:
+                        self.graficas.append(self.actual)
+                    self.actual = None
+
+        respuesta = self.client.get(reverse("procesos:indicadores"), {"periodo": "anual", "anio": "2026"})
+        parser = Tarjetas()
+        parser.feed(respuesta.content.decode())
+        self.assertEqual([item["grafica"] for item in parser.graficas], ["historico", "rechazos", "estados", "etapas", "cumplimiento", "vacantes"])
+        self.assertEqual(["analytics-wide" in item["clases"] for item in parser.graficas], [True, False, False, False, False, True])
+
 
 class DisenoPDFTests(SimpleTestCase):
     def test_motivo_esta_debajo_de_su_candidato_y_antes_del_siguiente(self):
