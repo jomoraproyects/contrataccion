@@ -11,9 +11,14 @@
 <section class="card shadow-sm border-0 mb-4"><div class="card-body p-4">
   <div class="d-flex flex-wrap justify-content-between align-items-center gap-2 mb-4"><h2 class="h4 fw-bold mb-0">Avance del proceso</h2>{% if ultimo_cambio_gerencia %}<span class="badge rounded-pill text-bg-info">Actualizado por Gerencia · {{ ultimo_cambio_gerencia.fecha|date:"d/m/Y H:i" }}</span>{% endif %}</div>
   <div class="process-flow">
+    <div class="flow-step done">
+      <div class="flow-icon" aria-label="Registro completado">✓</div>
+      <div class="flow-label">Vinculación</div>
+      <div class="small text-body-secondary mt-1">Registro del candidato</div>
+    </div>
   {% for etapa in etapas %}
     <div class="flow-step {{ etapa.estado_visual }}">
-      <div class="flow-icon">{% if etapa.estado_visual == 'done' %}✓{% elif etapa.estado_visual == 'rejected' %}✕{% else %}{{ forloop.counter }}{% endif %}</div>
+      <div class="flow-icon">{% if etapa.estado_visual == 'done' %}✓{% elif etapa.estado_visual == 'rejected' %}✕{% else %}{{ forloop.counter|add:"1" }}{% endif %}</div>
       <div class="flow-label">{{ etapa.etiqueta }}</div>{% if etapa.ajustada %}<span class="badge rounded-pill text-bg-info mt-2">Ajustado por Gerencia</span>{% endif %}
     </div>
   {% endfor %}

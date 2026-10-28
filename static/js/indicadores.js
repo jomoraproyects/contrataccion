@@ -75,18 +75,22 @@
   function vacancyBars() {
     const container = document.querySelector('[data-chart="vacantes"]');
     if (!data.vacantes.length) { empty(container); return; }
-    const svg = canvas(container, 600, 282);
+    container.replaceChildren();
+    const list = document.createElement("ol");
+    list.className = "vacancy-ranking";
     const max = Math.max(...data.vacantes.map((x) => x.cantidad), 1);
     data.vacantes.forEach((item, i) => {
-      const y = 18 + i * 51;
-      const group = node("g"); tip(group, item.etiqueta + ": " + item.cantidad + " candidatos");
-      const name = item.etiqueta.length > 24 ? item.etiqueta.slice(0, 23) + "…" : item.etiqueta;
-      group.appendChild(node("text", {x: 0, y: y + 18, class: "chart-label-text"}, name));
-      group.appendChild(node("rect", {x: 220, y, width: 320, height: 26, rx: 7, class: "chart-track"}));
-      group.appendChild(node("rect", {x: 220, y, width: Math.max(3, item.cantidad / max * 320), height: 26, rx: 7, fill: color(i % 4)}));
-      group.appendChild(node("text", {x: 556, y: y + 19, class: "chart-value-text"}, item.cantidad));
-      svg.appendChild(group);
+      const row = document.createElement("li");
+      const heading = document.createElement("div"); heading.className = "vacancy-ranking-heading";
+      const name = document.createElement("span"); name.textContent = item.etiqueta;
+      const count = document.createElement("strong"); count.textContent = numbers.format(item.cantidad);
+      heading.append(name, count);
+      const bar = node("svg", {viewBox: "0 0 100 8", preserveAspectRatio: "none", "aria-hidden": "true", focusable: "false", class: "vacancy-ranking-bar"});
+      bar.appendChild(node("rect", {width: 100, height: 8, rx: 2, class: "chart-track"}));
+      bar.appendChild(node("rect", {width: Math.max(0, item.cantidad / max * 100), height: 8, rx: 2, fill: color(i % 4)}));
+      row.append(heading, bar); list.appendChild(row);
     });
+    container.appendChild(list);
   }
 
   function trend() {
@@ -165,7 +169,7 @@
     label(svg, left, 269, "0%"); label(svg, left + width, 269, "100%", {"text-anchor": "end"});
   }
 
-  donut(); vacancyBars(); trend(); stages("promedio_horas"); compliance();
+  donut(); vacancyBars(); stages("promedio_horas"); compliance();
   document.querySelector("[data-stage-measure]").addEventListener("change", (event) => stages(event.target.value));
 
   const form = document.querySelector("[data-analytics-filters]");
