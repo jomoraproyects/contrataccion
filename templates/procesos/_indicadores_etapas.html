@@ -1,0 +1,22 @@
+{% if indicadores.area_mayor_tiempo_observado %}
+<aside class="card border-0 mb-4"><div class="card-body p-4">
+  <p class="eyebrow text-primary mb-1">Mayor tiempo promedio observado</p>
+  <h2 class="h4 fw-bold mb-2">{{ indicadores.area_mayor_tiempo_observado.etapa }} · {{ indicadores.area_mayor_tiempo_observado.promedio_observado_horas }} h</h2>
+  <p class="small text-body-secondary mb-0">Incluye etapas abiertas y finalizadas de los candidatos filtrados. Mayor duración no significa necesariamente incumplimiento; cada área tiene su propio plazo.</p>
+</div></aside>
+{% endif %}
+<section class="mb-4" aria-labelledby="titulo-indicadores-etapa">
+  <h2 id="titulo-indicadores-etapa" class="h4 fw-bold">Comportamiento por etapa</h2>
+  <p class="small text-body-secondary">Horas hábiles de 7:00 a. m. a 4:00 p. m.; se excluyen fines de semana y festivos. Los promedios de estas tarjetas incluyen las etapas abiertas.</p>
+  <div class="sla-grid">
+    {% for metrica in indicadores.por_etapa %}
+    <article class="card trace-stage-card border-0"><div class="card-body p-4">
+      <div class="trace-stage-top"><span class="trace-stage-number">{{ forloop.counter|stringformat:"02d" }}</span><span class="trace-stage-deadline">Plazo: {{ metrica.plazo_dias }} días hábiles</span></div>
+      <h3 class="h5 fw-bold mt-3">{{ metrica.etapa }}</h3>
+      <div class="trace-stage-time"><strong>{% if metrica.promedio_observado_horas is not None %}{{ metrica.promedio_observado_horas }} h{% else %}—{% endif %}</strong><span>Promedio en horas hábiles</span></div>
+      <div class="stage-stats"><span><strong>{{ metrica.abiertas }}</strong><small>Abiertas</small></span><span class="{% if metrica.retrasos %}has-delay{% endif %}"><strong>{{ metrica.retrasos }}</strong><small>Con retraso</small></span><span><strong>{{ metrica.finalizadas }}</strong><small>Finalizadas</small></span></div>
+      <p class="small text-body-secondary mt-3 mb-0">{% if metrica.cumplimiento_porcentaje is not None %}{{ metrica.cumplimiento_porcentaje }}% de las finalizadas a tiempo{% else %}Sin etapas finalizadas{% endif %}</p>
+    </div></article>
+    {% endfor %}
+  </div>
+</section>

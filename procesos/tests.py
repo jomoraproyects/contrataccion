@@ -151,7 +151,7 @@ class FlujoProcesoTests(TestCase):
         response = self.client.get(reverse("procesos:trazabilidad"))
         self.assertContains(response, "Trazabilidad de procesos")
         self.assertContains(response, "Vencido hace 1 día(s)")
-        self.assertContains(response, "Plazo: 6 días")
+        self.assertContains(response, "2 días hábiles")
         self.assertContains(response, "Trazabilidad por candidato")
         self.assertContains(response, 'class="card trace-process-card"')
         self.assertContains(response, "Abrir historial completo")
@@ -1270,9 +1270,8 @@ class FlujoProcesoTests(TestCase):
             response = self.client.get(reverse("procesos:indicadores"))
             with self.subTest(rol=rol):
                 self.assertEqual(response.status_code, 200)
-                self.assertContains(response, "Candidatos por vacante")
-                self.assertContains(response, "Candidatos filtrados")
-                self.assertContains(response, "Estado del proceso")
+                self.assertContains(response, "Comportamiento por etapa")
+                self.assertNotContains(response, "Candidatos filtrados")
                 self.assertContains(response, "Tiempo promedio por etapa")
                 self.assertNotContains(response, 'data-chart="tendencia"')
                 self.assertNotContains(response, "Ver datos del periodo")
@@ -1326,7 +1325,6 @@ class FlujoProcesoTests(TestCase):
             "fecha_desde": date.today().isoformat(), "fecha_hasta": date.today().isoformat(),
         })
         self.assertEqual(response.context["indicadores"]["total"], 1)
-        self.assertContains(response, "Ana Pérez")
         self.assertNotContains(response, "Luis Viejo")
 
         response = self.client.get(reverse("procesos:indicadores"))
@@ -1337,8 +1335,8 @@ class FlujoProcesoTests(TestCase):
         self.assertEqual(response.context["indicadores"]["total"], 1)
         self.assertEqual(response.context["indicadores"]["rechazados"], 1)
         self.assertEqual(response.context["indicadores"]["porcentaje_rechazados"], 100)
-        self.assertContains(response, "Luis Viejo")
-        self.assertEqual([proceso.pk for proceso in response.context["procesos"]], [anterior.pk])
+        self.assertNotContains(response, "Luis Viejo")
+        self.assertContains(response, "fecha_desde=2025-01-01")
 
     def test_indicadores_filtran_por_estado_etapa_y_vacante(self):
         otro = ProcesoSeleccion.objects.create(
@@ -1357,7 +1355,7 @@ class FlujoProcesoTests(TestCase):
         })
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.context["indicadores"]["total"], 1)
-        self.assertContains(response, "Ana Pérez")
+        self.assertContains(response, "Comportamiento por etapa")
         self.assertNotContains(response, "Luis Ventas")
         self.assertContains(response, "Estado: En curso")
         self.assertContains(response, "Área/etapa: Talento Humano")
@@ -1376,12 +1374,12 @@ class FlujoProcesoTests(TestCase):
             "q": "998822",
             "vacante": "vEnTaS",
         })
-        nombres_filtrados = [proceso.nombre_completo for proceso in filtrado.context["procesos"]]
-        self.assertEqual(nombres_filtrados, ["Luis Ventas"])
+        self.assertEqual(filtrado.context["indicadores"]["total"], 1)
+        self.assertEqual(filtrado.context["indicadores"]["vacante_mas_candidatos"]["vacante"], "Ventas")
         self.assertContains(filtrado, "Búsqueda: 998822")
         self.assertContains(filtrado, "Filtros aplicados:")
 
-    def test_indicadores_paginan_cinco_y_exportan_todos_los_filtrados(self):
+    def test_indicadores_no_listan_candidatos_y_exportan_todos_los_filtrados(self):
         from io import BytesIO
         from openpyxl import load_workbook
 
@@ -1399,14 +1397,14 @@ class FlujoProcesoTests(TestCase):
             "vacante": "Ventas",
         }
         primera = self.client.get(reverse("procesos:indicadores"), parametros)
-        self.assertEqual(len(primera.context["procesos"]), 5)
-        self.assertEqual(primera.context["page_obj"].paginator.count, 12)
-        self.assertContains(primera, "vacante=Ventas&amp;page=2")
+        self.assertEqual(primera.context["indicadores"]["total"], 12)
+        self.assertNotContains(primera, "Candidatos filtrados")
+        self.assertNotContains(primera, "page=2")
 
         segunda = self.client.get(reverse("procesos:indicadores"), {**parametros, "page": 2})
-        self.assertEqual(len(segunda.context["procesos"]), 5)
+        self.assertEqual(segunda.context["indicadores"]["total"], 12)
         tercera = self.client.get(reverse("procesos:indicadores"), {**parametros, "page": 3})
-        self.assertEqual(len(tercera.context["procesos"]), 2)
+        self.assertEqual(tercera.context["indicadores"]["total"], 12)
 
         excel = self.client.get(reverse("procesos:exportar_indicadores", args=["xlsx"]), parametros)
         libro = load_workbook(BytesIO(excel.content), read_only=True, data_only=True)
@@ -1549,7 +1547,7 @@ class FlujoProcesoTests(TestCase):
             "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         )
         libro = load_workbook(BytesIO(excel.content), read_only=True, data_only=True)
-        self.assertEqual(libro.sheetnames, ["Resumen", "Candidatos", "Detalle por etapa", "Resumen por área"])
+        self.assertEqual(libro.sheetnames, ["Resumen", "Candidatos", "Detalle por etapa"])
         self.assertEqual(libro["Candidatos"]["B2"].value, "Ana Pérez")
         self.assertIn("Estado: En curso", libro["Resumen"]["B2"].value)
 

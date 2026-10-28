@@ -72,11 +72,14 @@ def calcular_indicadores(procesos, periodo=None):
         cerrados_etapa = [item for item in cerrados if item.etapa == valor]
         todos_etapa = [item for item in seguimientos if item.etapa == valor and item.resultado != SeguimientoEtapa.Resultado.AJUSTADO]
         duraciones = [duraciones_cerradas[item.pk] for item in cerrados_etapa]
+        medidos = [item for item in cerrados_etapa] + [item for item in abiertos if item.etapa == valor]
         retrasos_cerrados = sum(item.esta_vencido for item in cerrados_etapa)
         metricas_etapa.append({
             "valor": valor,
             "etapa": etiqueta,
             "promedio_horas": round(mean(duraciones), 1) if duraciones else None,
+            "promedio_observado_horas": round(mean(item.duracion_horas for item in medidos), 1) if medidos else None,
+            "medidos": len(medidos),
             "mediana_horas": round(median(duraciones), 1) if duraciones else None,
             "finalizadas": len(cerrados_etapa),
             "abiertas": sum(item.fin is None for item in todos_etapa),
@@ -126,6 +129,10 @@ def calcular_indicadores(procesos, periodo=None):
     area_mas_demorada = max(
         (item for item in metricas_etapa if item["promedio_horas"] is not None),
         key=lambda item: item["promedio_horas"], default=None,
+    )
+    area_mayor_tiempo_observado = max(
+        (item for item in metricas_etapa if item["promedio_observado_horas"] is not None),
+        key=lambda item: item["promedio_observado_horas"], default=None,
     )
 
     # Serie mensual continua: los meses sin postulaciones aparecen como cero.
@@ -177,6 +184,7 @@ def calcular_indicadores(procesos, periodo=None):
         "max_promedio_horas": max_promedio_horas,
         "area_mas_retrasos": area_mas_retrasos,
         "area_mas_demorada": area_mas_demorada,
+        "area_mayor_tiempo_observado": area_mayor_tiempo_observado,
         "proximos_vencer": proximos_vencer,
         "vencidos": total_vencidos,
         "cumplimiento_porcentaje": cumplimiento,
@@ -214,9 +222,9 @@ def _requisitos_rechazo(proceso):
     return ", ".join(proceso.requisitos_rechazo) or "Sin lista de verificación registrada"
 
 
-def _detalle_rechazos_pdf(procesos, estilos):
+def _detalle_rechazos_pdf(procesos, estilos, agrupar=False):
     from reportlab.lib.units import cm
-    from reportlab.platypus import Paragraph, Spacer
+    from reportlab.platypus import KeepTogether, Paragraph, Spacer
 
     rechazados = [proceso for proceso in procesos if proceso.estado == ProcesoSeleccion.Estado.RECHAZADO]
     if not rechazados:
@@ -225,13 +233,14 @@ def _detalle_rechazos_pdf(procesos, estilos):
     for proceso in rechazados:
         etapa, motivo = _datos_rechazo(proceso)
         motivo_seguro = escape(motivo).replace("\r\n", "\n").replace("\n", "<br/>")
-        contenido.extend([
-            Paragraph(f"<b>{escape(proceso.nombre_completo)}</b> — {escape(proceso.cedula)}", estilos["BodyText"]),
+        bloque = [
+            Paragraph(f"<b>{escape(proceso.nombre_completo)}</b> - {escape(proceso.cedula)}", estilos["BodyText"]),
             Paragraph(f"<b>Etapa de rechazo:</b> {escape(etapa)}", estilos["BodyText"]),
             Paragraph(f"<b>Requisitos no cumplidos:</b> {escape(_requisitos_rechazo(proceso))}", estilos["BodyText"]),
             Paragraph(f"<b>Motivo:</b> {motivo_seguro}", estilos["BodyText"]),
             Spacer(1, 0.25 * cm),
-        ])
+        ]
+        contenido.extend([KeepTogether(bloque)] if agrupar else bloque)
     return contenido
 
 
@@ -283,51 +292,9 @@ def exportar_excel(procesos, indicadores, rango):
 
 
 def exportar_pdf(procesos, indicadores, rango):
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib.units import cm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table
+    from .pdf_reportes import candidatos_pdf
 
-    salida = BytesIO()
-    documento = SimpleDocTemplate(
-        salida,
-        pagesize=landscape(A4),
-        rightMargin=1.2 * cm,
-        leftMargin=1.2 * cm,
-        topMargin=1.2 * cm,
-        bottomMargin=1.2 * cm,
-        title="Candidatos por vacante",
-    )
-    estilos = getSampleStyleSheet()
-    contenido = [
-        Paragraph("Candidatos por vacante", estilos["Title"]),
-        Paragraph(f"Filtros aplicados: {escape(rango)}", estilos["Normal"]),
-        Spacer(1, 0.35 * cm),
-    ]
-    filas = [["Candidato", "Cédula", "Celular", "Vacante", "Llegada HDV", "Etapa actual", "Estado"]]
-    for proceso in procesos:
-        filas.append([
-            Paragraph(escape(proceso.nombre_completo), estilos["BodyText"]),
-            escape(proceso.cedula),
-            escape(proceso.celular),
-            Paragraph(escape(proceso.vacante), estilos["BodyText"]),
-            proceso.fecha_llegada.strftime("%d/%m/%Y"),
-            Paragraph(escape(proceso.get_etapa_actual_display()), estilos["BodyText"]),
-            proceso.get_estado_display(),
-        ])
-    if len(filas) == 1:
-        filas.append(["Sin candidatos para los filtros seleccionados", "", "", "", "", "", ""])
-    tabla = Table(
-        filas,
-        repeatRows=1,
-        colWidths=[5 * cm, 3 * cm, 3.3 * cm, 5.2 * cm, 3 * cm, 4.2 * cm, 3.2 * cm],
-    )
-    tabla.setStyle(_estilo_tabla_pdf(colors))
-    contenido.append(tabla)
-    contenido.extend(_detalle_rechazos_pdf(procesos, estilos))
-    documento.build(contenido)
-    return salida.getvalue()
+    return candidatos_pdf(procesos, rango)
 
 
 def _fecha_excel(valor):
@@ -338,7 +305,7 @@ def _fecha_excel(valor):
     return valor
 
 
-def exportar_trazabilidad_excel(procesos, metricas, resumen, filtros):
+def exportar_trazabilidad_excel(procesos, resumen, filtros):
     from openpyxl import Workbook
     from openpyxl.styles import Alignment, Font, PatternFill
 
@@ -404,19 +371,6 @@ def exportar_trazabilidad_excel(procesos, metricas, resumen, filtros):
         for celda in hoja_etapas[columna][1:]:
             celda.number_format = "yyyy-mm-dd hh:mm"
 
-    hoja_areas = libro.create_sheet("Resumen por área")
-    hoja_areas.append([
-        "Área o etapa", "Plazo (días hábiles)", "Promedio (h)",
-        "Cumplimiento", "Abiertas", "Vencidas", "Finalizadas",
-    ])
-    for metrica in metricas:
-        hoja_areas.append([
-            metrica["etapa"], metrica["plazo"], metrica["promedio_horas"],
-            metrica["cumplimiento"] / 100 if metrica["cumplimiento"] is not None else None,
-            metrica["abiertos"], metrica["vencidos"], metrica["finalizados"],
-        ])
-    for celda in hoja_areas["D"][1:]:
-        celda.number_format = "0%"
 
     encabezado = PatternFill("solid", fgColor="1559A6")
     for hoja in libro.worksheets:
@@ -437,116 +391,7 @@ def exportar_trazabilidad_excel(procesos, metricas, resumen, filtros):
     return salida.getvalue()
 
 
-def exportar_trazabilidad_pdf(procesos, metricas, resumen, filtros):
-    from reportlab.lib import colors
-    from reportlab.lib.pagesizes import A4, landscape
-    from reportlab.lib.styles import getSampleStyleSheet
-    from reportlab.lib.units import cm
-    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table
+def exportar_trazabilidad_pdf(procesos, resumen, filtros):
+    from .pdf_reportes import trazabilidad_pdf
 
-    salida = BytesIO()
-    documento = SimpleDocTemplate(
-        salida,
-        pagesize=landscape(A4),
-        rightMargin=1 * cm,
-        leftMargin=1 * cm,
-        topMargin=1 * cm,
-        bottomMargin=1 * cm,
-        title="Trazabilidad de selección",
-    )
-    estilos = getSampleStyleSheet()
-    contenido = [
-        Paragraph("Trazabilidad de selección", estilos["Title"]),
-        Paragraph(f"Filtros aplicados: {escape(filtros)}", estilos["Normal"]),
-        Spacer(1, 0.3 * cm),
-    ]
-    tabla_resumen = Table([
-        ["Procesos", "Finalizados", "Con retrasos", "Etapas abiertas"],
-        [resumen["total"], resumen["finalizados"], resumen["con_retrasos"], resumen["abiertos"]],
-    ], repeatRows=1, colWidths=[5.5 * cm] * 4)
-    tabla_resumen.setStyle(_estilo_tabla_pdf(colors))
-    contenido.extend([tabla_resumen, Spacer(1, 0.4 * cm)])
-
-    contenido.append(Paragraph("Comportamiento por área", estilos["Heading2"]))
-    filas_areas = [["Área", "Plazo", "Promedio", "% a tiempo", "Abiertas", "Vencidas", "Finalizadas"]]
-    for metrica in metricas:
-        filas_areas.append([
-            Paragraph(escape(metrica["etapa"]), estilos["BodyText"]),
-            f'{metrica["plazo"]} días',
-            f'{metrica["promedio_horas"]} h' if metrica["promedio_horas"] is not None else "-",
-            f'{metrica["cumplimiento"]}%' if metrica["cumplimiento"] is not None else "-",
-            metrica["abiertos"], metrica["vencidos"], metrica["finalizados"],
-        ])
-    tabla_areas = Table(
-        filas_areas, repeatRows=1,
-        colWidths=[6.8 * cm, 2.5 * cm, 2.5 * cm, 2.5 * cm, 2.3 * cm, 2.3 * cm, 2.5 * cm],
-    )
-    tabla_areas.setStyle(_estilo_tabla_pdf(colors))
-    contenido.extend([tabla_areas, Spacer(1, 0.4 * cm)])
-
-    contenido.append(Paragraph("Procesos filtrados", estilos["Heading2"]))
-    filas_procesos = [[
-        "Candidato", "Cédula", "Vacante o área", "Llegada", "Etapa", "Estado", "Tiempo", "Retrasos",
-    ]]
-    for proceso in procesos:
-        filas_procesos.append([
-            Paragraph(escape(proceso.nombre_completo), estilos["BodyText"]),
-            escape(proceso.cedula),
-            Paragraph(escape(proceso.vacante), estilos["BodyText"]),
-            proceso.fecha_llegada.strftime("%d/%m/%Y"),
-            Paragraph(escape(proceso.get_etapa_actual_display()), estilos["BodyText"]),
-            proceso.get_estado_display(),
-            f"{proceso.traza_total_horas} h",
-            proceso.traza_fuera_tiempo,
-        ])
-    if len(filas_procesos) == 1:
-        filas_procesos.append(["Sin procesos para estos filtros", "", "", "", "", "", "", ""])
-    tabla_procesos = Table(
-        filas_procesos, repeatRows=1,
-        colWidths=[4.3 * cm, 2.5 * cm, 4.6 * cm, 2.4 * cm, 4 * cm, 2.6 * cm, 2.2 * cm, 2 * cm],
-    )
-    tabla_procesos.setStyle(_estilo_tabla_pdf(colors))
-    contenido.extend([tabla_procesos, Spacer(1, 0.4 * cm)])
-    contenido.extend(_detalle_rechazos_pdf(procesos, estilos))
-
-    contenido.append(Paragraph("Detalle de etapas", estilos["Heading2"]))
-    filas_etapas = [["Candidato", "Etapa", "Plazo", "Inicio", "Finalización", "Tiempo", "Resultado", "Cumplimiento"]]
-    for proceso in procesos:
-        for seguimiento in proceso.traza_seguimientos:
-            filas_etapas.append([
-                Paragraph(escape(proceso.nombre_completo), estilos["BodyText"]),
-                Paragraph(escape(seguimiento.get_etapa_display()), estilos["BodyText"]),
-                f"{seguimiento.plazo_dias} días",
-                timezone.localtime(seguimiento.inicio).strftime("%d/%m/%Y %H:%M"),
-                timezone.localtime(seguimiento.fin).strftime("%d/%m/%Y %H:%M") if seguimiento.fin else "En curso",
-                f"{seguimiento.duracion_horas} h",
-                seguimiento.get_resultado_display() or "Pendiente",
-                seguimiento.estado_plazo,
-            ])
-    if len(filas_etapas) == 1:
-        filas_etapas.append(["Sin etapas para estos filtros", "", "", "", "", "", "", ""])
-    tabla_etapas = Table(
-        filas_etapas, repeatRows=1,
-        colWidths=[4 * cm, 4 * cm, 2.2 * cm, 3.2 * cm, 3.2 * cm, 2.2 * cm, 2.8 * cm, 3.4 * cm],
-    )
-    tabla_etapas.setStyle(_estilo_tabla_pdf(colors))
-    contenido.append(tabla_etapas)
-    documento.build(contenido)
-    return salida.getvalue()
-
-
-def _estilo_tabla_pdf(colors):
-    from reportlab.platypus import TableStyle
-
-    return TableStyle([
-        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1559A6")),
-        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
-        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTNAME", (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE", (0, 0), (-1, -1), 8.5),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#EEF4FA")]),
-        ("GRID", (0, 0), (-1, -1), 0.3, colors.HexColor("#B7C6D8")),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-    ])
+    return trazabilidad_pdf(procesos, resumen, filtros)

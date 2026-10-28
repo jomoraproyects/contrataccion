@@ -14,6 +14,7 @@ from django.utils import timezone
 from django.utils.dateparse import parse_date
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.utils.text import slugify
+from urllib.parse import urlencode
 from django.views.decorators.cache import never_cache
 from django.views.decorators.http import require_GET, require_POST
 
@@ -457,41 +458,6 @@ def trazabilidad(request):
     vencidos = [item for item in abiertos if item.esta_vencido]
     por_vencer = [item for item in abiertos if not item.esta_vencido and item.dias_restantes <= 1]
     en_plazo = [item for item in abiertos if item not in vencidos and item not in por_vencer]
-    metricas = []
-    for valor, etiqueta in ProcesoSeleccion.Etapa.choices:
-        todos_etapa = [item for item in seguimientos_filtrados if item.etapa == valor]
-        abiertos_etapa = [item for item in todos_etapa if item.fin is None]
-        cerrados = [
-            item for item in todos_etapa
-            if item.fin is not None and item.resultado != SeguimientoEtapa.Resultado.AJUSTADO
-        ]
-        medidos = [item for item in todos_etapa if item.resultado != SeguimientoEtapa.Resultado.AJUSTADO]
-        promedio = round(sum(item.duracion_horas for item in medidos) / len(medidos), 1) if medidos else None
-        a_tiempo = sum(not item.esta_vencido for item in cerrados)
-        metricas.append({
-            "valor": valor,
-            "etapa": etiqueta,
-            "plazo": SeguimientoEtapa(proceso_id=0, etapa=valor).plazo_dias,
-            "promedio_horas": promedio,
-            "cumplimiento": round(a_tiempo * 100 / len(cerrados)) if cerrados else None,
-            "finalizados": len(cerrados),
-            "medidos": len(medidos),
-            "abiertos": len(abiertos_etapa),
-            "vencidos": sum(item.esta_vencido for item in abiertos_etapa),
-        })
-    cuello_botella = max(
-        (metrica for metrica in metricas if metrica["promedio_horas"] is not None),
-        key=lambda metrica: metrica["promedio_horas"],
-        default=None,
-    )
-    if cuello_botella:
-        cuello_botella["es_cuello_botella"] = True
-    mayor_promedio = max((metrica["promedio_horas"] or 0 for metrica in metricas), default=0)
-    for metrica in metricas:
-        metrica["barra_porcentaje"] = (
-            round(metrica["promedio_horas"] * 100 / mayor_promedio)
-            if metrica["promedio_horas"] is not None and mayor_promedio else 0
-        )
 
     parametros = request.GET.copy()
     parametros.pop("page", None)
@@ -513,8 +479,8 @@ def trazabilidad(request):
         return _respuesta_exportacion(
             request,
             formato_exportacion,
-            lambda: exportar_trazabilidad_excel(procesos, metricas, resumen_trazabilidad, filtros),
-            lambda: exportar_trazabilidad_pdf(procesos, metricas, resumen_trazabilidad, filtros),
+            lambda: exportar_trazabilidad_excel(procesos, resumen_trazabilidad, filtros),
+            lambda: exportar_trazabilidad_pdf(procesos, resumen_trazabilidad, filtros),
             "trazabilidad-seleccion",
             volver_a,
         )
@@ -533,8 +499,6 @@ def trazabilidad(request):
         "vencidos": vencidos,
         "por_vencer": por_vencer,
         "en_plazo": en_plazo,
-        "metricas": metricas,
-        "cuello_botella": cuello_botella,
         "hay_filtros": any(request.GET.get(nombre) for nombre in formulario.fields if nombre != "orden"),
     })
 
@@ -545,16 +509,19 @@ def indicadores(request):
     formulario = IndicadoresFiltroForm(request.GET)
     procesos = list(_procesos_indicadores(request, formulario)) if formulario.is_valid() else []
     resumen = calcular_indicadores(procesos, formulario.cleaned_data if formulario.is_valid() else None)
-    pagina = Paginator(procesos, 5).get_page(request.GET.get("page"))
     parametros = request.GET.copy()
     parametros.pop("page", None)
+    filtros_trazabilidad = {
+        nombre: str(formulario.cleaned_data[nombre])
+        for nombre in ("q", "fecha_desde", "fecha_hasta", "estado", "etapa", "vacante")
+        if formulario.is_valid() and formulario.cleaned_data.get(nombre)
+    }
     return render(request, "procesos/indicadores.html", {
         "formulario_filtros": formulario,
-        "procesos": pagina,
-        "page_obj": pagina,
-        "paginas": _opciones_paginacion(pagina),
         "indicadores": resumen,
         "rango": _rango_indicadores(formulario) if formulario.is_valid() else "Rango inválido",
+        "url_trazabilidad": reverse("procesos:trazabilidad") + "?" + urlencode(filtros_trazabilidad),
+        "es_gerente": _rol(request.user) == Perfil.Rol.GERENTE,
         "querystring": parametros.urlencode(),
         "hay_filtros": any(request.GET.get(nombre) for nombre in formulario.fields),
     })

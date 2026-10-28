@@ -4,7 +4,7 @@
 <header class="d-flex flex-column flex-lg-row justify-content-between align-items-lg-start gap-3 mb-4">
   <div><p class="eyebrow text-primary mb-1">Control de Gerencia</p>
   <h1 class="display-6 fw-bold mb-1">Trazabilidad de procesos</h1>
-  <p class="fs-5 text-body-secondary mb-0">Consulte dónde está cada candidato, cuánto ha tardado y qué etapas concentran las mayores demoras.</p></div>
+  <p class="fs-5 text-body-secondary mb-0">Consulte los candidatos por vacante y revise el historial de cada etapa.</p></div>
   <div class="d-flex flex-wrap gap-2">
     <a class="btn btn-success btn-lg" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}exportar=xlsx">Exportar Excel</a>
     <a class="btn btn-danger btn-lg" href="?{% if querystring %}{{ querystring }}&amp;{% endif %}exportar=pdf">Exportar PDF</a>
@@ -12,7 +12,7 @@
 </header>
 
 <details class="card trace-filters border-0 mb-4" open>
-  <summary class="card-header bg-white p-3 fs-5 fw-bold">Filtros del análisis{% if hay_filtros %} <span class="badge text-bg-primary ms-2">Aplicados</span>{% endif %}</summary>
+  <summary class="card-header bg-white p-3 fs-5 fw-bold">Filtros de candidatos{% if hay_filtros %} <span class="badge text-bg-primary ms-2">Aplicados</span>{% endif %}</summary>
   <form class="card-body row g-3" method="get" novalidate>
     {% if formulario_filtros.non_field_errors %}<div class="col-12"><div class="alert alert-danger mb-0" role="alert">{{ formulario_filtros.non_field_errors }}</div></div>{% endif %}
     {% for field in formulario_filtros %}
@@ -24,7 +24,7 @@
     {% endfor %}
     <div class="col-12 d-flex flex-column flex-sm-row justify-content-end gap-2 pt-2">
       <a class="btn btn-outline-secondary btn-lg" href="{% url 'procesos:trazabilidad' %}">Limpiar filtros</a>
-      <button class="btn btn-primary btn-lg px-5" type="submit">Actualizar análisis</button>
+      <button class="btn btn-primary btn-lg px-5" type="submit">Aplicar filtros</button>
     </div>
   </form>
 </details>
@@ -34,32 +34,6 @@
   <article class="summary-card summary-amber"><span class="summary-icon" aria-hidden="true">↻</span><div><span>Etapas abiertas</span><strong>{{ abiertos|length }}</strong></div></article>
   <article class="summary-card summary-red"><span class="summary-icon" aria-hidden="true">!</span><div><span>Procesos con retrasos</span><strong>{{ procesos_con_retrasos }}</strong></div></article>
   <article class="summary-card summary-green"><span class="summary-icon" aria-hidden="true">✓</span><div><span>Procesos finalizados</span><strong>{{ procesos_finalizados }}</strong></div></article>
-</section>
-
-{% if cuello_botella %}
-<aside class="bottleneck-card card border-0 mb-4" aria-labelledby="titulo-cuello-botella">
-  <div class="card-body p-4 d-flex flex-column flex-lg-row justify-content-between gap-3">
-    <div><p class="eyebrow text-danger mb-1">Mayor demora promedio del periodo</p><h2 id="titulo-cuello-botella" class="h3 fw-bold mb-1">{{ cuello_botella.etapa }}</h2><p class="text-body-secondary mb-0">Promedio de {{ cuello_botella.promedio_horas }} horas hábiles en {{ cuello_botella.medidos }} etapa{{ cuello_botella.medidos|pluralize }} analizada{{ cuello_botella.medidos|pluralize }}; incluye las que siguen abiertas.</p></div>
-    <div class="bottleneck-value"><strong>{{ cuello_botella.promedio_horas }} h</strong><span>{% if cuello_botella.cumplimiento != None %}{{ cuello_botella.cumplimiento }}% a tiempo{% else %}Aún sin cierres{% endif %}</span></div>
-  </div>
-</aside>
-{% endif %}
-
-<section class="mb-4" aria-labelledby="titulo-indicadores-etapa">
-  <div class="d-flex flex-column flex-md-row justify-content-between gap-2 mb-3"><div><h2 id="titulo-indicadores-etapa" class="h3 fw-bold mb-1">Comportamiento por etapa</h2><p class="text-body-secondary mb-0">Los indicadores responden a los filtros aplicados arriba.</p></div><span class="text-body-secondary">Horario medido: 7:00 a. m. a 4:00 p. m.; se excluyen sábados, domingos y festivos</span></div>
-  <div class="sla-grid">
-    {% for metrica in metricas %}
-    <article class="card trace-stage-card border-0 {% if metrica.es_cuello_botella %}is-bottleneck{% endif %}">
-      <div class="card-body p-4">
-        <div class="trace-stage-top"><span class="trace-stage-number" aria-hidden="true">{{ forloop.counter|stringformat:"02d" }}</span><span class="trace-stage-deadline">Plazo: {{ metrica.plazo }} días hábiles</span></div>
-        <h3 class="h4 fw-bold mt-3 mb-2">{{ metrica.etapa }}</h3>
-        {% if metrica.es_cuello_botella %}<span class="badge text-bg-danger mb-3">Mayor demora</span>{% endif %}
-        {% if metrica.promedio_horas != None %}<div class="trace-stage-time"><strong>{{ metrica.promedio_horas }} h</strong><span>Promedio en horas hábiles</span></div><progress class="trace-stage-progress" value="{{ metrica.barra_porcentaje }}" max="100">{{ metrica.promedio_horas }} horas</progress>{% else %}<p class="text-body-secondary py-3 mb-0">Sin etapas para analizar en este filtro.</p>{% endif %}
-        <div class="stage-stats"><span><strong>{{ metrica.abiertos }}</strong><small>Abiertas</small></span><span class="{% if metrica.vencidos %}has-delay{% endif %}"><strong>{{ metrica.vencidos }}</strong><small>Vencidas</small></span><span><strong>{{ metrica.finalizados }}</strong><small>Finalizadas</small></span></div>
-      </div>
-    </article>
-    {% endfor %}
-  </div>
 </section>
 
 <section aria-labelledby="titulo-procesos-traza">
