@@ -1,12 +1,13 @@
 from datetime import date
 from urllib.parse import parse_qs, urlsplit
+from types import SimpleNamespace
 
 from django.contrib.auth.models import User
 from django.test import TestCase, SimpleTestCase
 from django.urls import reverse
 
 from .models import Perfil, ProcesoSeleccion
-from .pdf_reportes import _estilos, _tabla, candidatos_pdf, trazabilidad_pdf
+from .pdf_reportes import _estilos, _tabla, _tabla_candidatos, candidatos_pdf, trazabilidad_pdf
 
 
 class SeparacionPanelesTests(TestCase):
@@ -50,6 +51,27 @@ class SeparacionPanelesTests(TestCase):
 
 
 class DisenoPDFTests(SimpleTestCase):
+    def test_motivo_esta_debajo_de_su_candidato_y_antes_del_siguiente(self):
+        rechazado = SimpleNamespace(estado="RECHAZADO", etapa_rechazo="Psicología", motivo_rechazo="Observación <b>literal</b> & texto seguro")
+        pendiente = SimpleNamespace(estado="EN_CURSO")
+        tabla = _tabla_candidatos(
+            ["Candidato", "Estado"], [rechazado, pendiente],
+            [["Primera persona", "Rechazado"], ["Segunda persona", "En curso"]],
+            [2, 1], SimpleNamespace(width=740, height=440), _estilos(),
+        )
+        self.assertEqual(len(tabla._cellvalues), 4)
+        def texto(fila):
+            celda = tabla._cellvalues[fila][0]
+            return (celda[0] if isinstance(celda, (tuple, list)) else celda).getPlainText()
+        self.assertEqual(texto(1), "Primera persona")
+        self.assertIn("Motivo de rechazo - Psicología:", texto(2))
+        self.assertIn("<b>literal</b> & texto seguro", texto(2))
+        self.assertEqual(texto(3), "Segunda persona")
+        self.assertIn(("SPAN", (0, 2), (-1, 2)), tabla._spanCmds)
+        self.assertEqual(tabla.splitInRow, 0)
+        alto_sin_motivo = tabla._rowHeights[0] + tabla._rowHeights[1] + 1
+        self.assertEqual(tabla.split(740, alto_sin_motivo), [])
+
     def test_tabla_ajusta_ancho_y_repite_encabezados_con_textos_largos(self):
         texto = "Vacante muy extensa con acentos: recolección y operación " * 12
         tabla = _tabla(["Candidato", "Vacante"], [["Persona de ejemplo", texto]], [1, 2], 740, _estilos())
