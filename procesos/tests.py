@@ -716,7 +716,9 @@ class FlujoProcesoTests(TestCase):
         self.client.force_login(self.usuarios[Perfil.Rol.GERENTE])
         primera = self.client.get(reverse("procesos:usuarios"))
         self.assertEqual(len(primera.context["usuarios"]), 5)
-        self.assertEqual(primera.context["usuarios"][0].username, "rrhh_nuevo_1")
+        self.assertEqual([u.username for u in primera.context["usuarios"]], [
+            "gerente", "vinculacion", "rrhh_nuevo_1", "rrhh_nuevo_0", "rrhh",
+        ])
         segunda = self.client.get(reverse("procesos:usuarios"), {"page": 2})
         self.assertEqual(len(segunda.context["usuarios"]), 3)
 

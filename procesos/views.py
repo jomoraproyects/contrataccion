@@ -6,7 +6,7 @@ from django.contrib.auth.models import User
 from django.core.exceptions import PermissionDenied, ValidationError
 from django.core.paginator import Paginator
 from django.db import IntegrityError, connection, transaction
-from django.db.models import Count, Prefetch, Q
+from django.db.models import Case, Count, IntegerField, Prefetch, Q, When
 from django.http import HttpResponse, HttpResponseBadRequest, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.urls import reverse
@@ -830,7 +830,12 @@ def lista_usuarios(request):
     _exigir_gerente(request)
     usuarios = User.objects.select_related("perfil").exclude(
         perfil__rol=Perfil.Rol.SIN_ASIGNAR
-    ).order_by("-date_joined", "-pk")
+    ).alias(orden_flujo=Case(
+        *[When(perfil__rol=rol, then=posicion) for posicion, rol in enumerate((
+            Perfil.Rol.GERENTE, Perfil.Rol.VINCULACION, Perfil.Rol.RRHH,
+            Perfil.Rol.PSICOLOGIA, Perfil.Rol.SEGURIDAD, Perfil.Rol.CONTRATACION,
+        ))], default=99, output_field=IntegerField(),
+    )).order_by("orden_flujo", "-date_joined", "-pk")
     bloqueados_temporales = Q(perfil__bloqueado_hasta__gt=timezone.now())
     usuarios_activos = usuarios.filter(is_active=True).exclude(bloqueados_temporales).count()
     usuarios_bloqueados = usuarios.filter(Q(is_active=False) | bloqueados_temporales).distinct().count()
@@ -850,9 +855,15 @@ def lista_usuarios(request):
 
 
 @login_required
-def crear_usuario(request):
+def crear_usuario(request, rol_fijo=None):
     _exigir_gerente(request)
     form = UsuarioOperativoForm(request.POST or None)
+    es_contratacion = rol_fijo == Perfil.Rol.CONTRATACION
+    if es_contratacion:
+        form.fields["rol"].initial = Perfil.Rol.CONTRATACION
+        form.fields["rol"].disabled = True
+        form.fields["username"].initial = "contratacion"
+        form.fields["first_name"].initial = "Contratación"
     if request.method == "POST" and form.is_valid():
         usuario = form.save()
         registrar_evento(
@@ -863,8 +874,12 @@ def crear_usuario(request):
         return redirect("procesos:usuarios")
     return render(request, "procesos/usuario_formulario.html", {
         "form": form,
-        "titulo": "Crear usuario",
-        "descripcion": "Cree una cuenta y asigne el área que podrá gestionar.",
+        "titulo": "Crear cuenta de Contratación" if es_contratacion else "Crear usuario",
+        "descripcion": (
+            "Etapa final después de SST: recibe candidatos listos para contratar. "
+            "Esta cuenta es independiente de Vinculación y no modifica sus accesos."
+            if es_contratacion else "Cree una cuenta y asigne el área que podrá gestionar."
+        ),
         "texto_boton": "Crear usuario",
     })
 

@@ -12,8 +12,10 @@ from .validacion import normalizar_cedula, normalizar_celular, normalizar_vacant
 
 
 ROLES_OPERATIVOS = [
-    choice for choice in Perfil.Rol.choices
-    if choice[0] not in (Perfil.Rol.GERENTE, Perfil.Rol.SIN_ASIGNAR)
+    (rol.value, rol.label) for rol in (
+        Perfil.Rol.VINCULACION, Perfil.Rol.RRHH, Perfil.Rol.PSICOLOGIA,
+        Perfil.Rol.SEGURIDAD, Perfil.Rol.CONTRATACION,
+    )
 ]
 
 
@@ -345,6 +347,7 @@ class UsuarioOperativoForm(UserCreationForm):
         self.fields["password2"].label = "Confirmar contraseña"
         for field in self.fields.values():
             field.widget.attrs["class"] = "form-control form-control-lg"
+        self.fields["rol"].widget.attrs["class"] = "form-select form-select-lg"
 
     def save(self, commit=True):
         usuario = super().save(commit=commit)

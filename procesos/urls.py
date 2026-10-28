@@ -22,6 +22,8 @@ urlpatterns = [
     path("candidato/<int:pk>/eliminar/", views.eliminar_proceso_gerencia, name="proceso_eliminar"),
     path("usuarios/", views.lista_usuarios, name="usuarios"),
     path("usuarios/nuevo/", views.crear_usuario, name="usuario_crear"),
+    path("usuarios/nuevo/contratacion/", views.crear_usuario,
+         {"rol_fijo": "CONTRATACION"}, name="usuario_crear_contratacion"),
     path("usuarios/<int:pk>/editar/", views.editar_usuario, name="usuario_editar"),
     path("usuarios/<int:pk>/password/", views.cambiar_password_usuario, name="usuario_password"),
 ]

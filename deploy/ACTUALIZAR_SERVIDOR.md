@@ -83,3 +83,20 @@ Debe aparecer `active`. Entre a la aplicación y compruebe que sigan los
 candidatos y procesos anteriores, que se vea el login nuevo y que carguen las
 pantallas de Gerencia. Si falla algún paso, no repita la migración a ciegas;
 conserve el respaldo y revise `sudo journalctl -u seleccion -n 80 --no-pager`.
+
+## Crear la cuenta final de Contratación
+
+Después de aplicar las migraciones 0015 y 0016 y descargar el comando
+`crear_contratacion`, puede crear la cuenta final sin tocar Vinculación ni los
+procesos. No hay otra migración para esta cuenta. Esta ejecución carga el mismo
+archivo de entorno del servicio para evitar crear por error el usuario en SQLite:
+
+```bash
+sudo systemd-run --wait --pty --collect --uid=seleccion --working-directory=/var/www/seleccion/app --property=EnvironmentFile=/etc/seleccion/seleccion.env /var/www/seleccion/.venv/bin/python manage.py crear_contratacion --exigir-mysql --permitir-clave-inicial-11
+```
+
+La contraseña se solicita dos veces sin mostrarse ni almacenarse en el código.
+La opción de 11 caracteres se limita a esta creación inicial y no cambia la
+política general de contraseñas. Use una contraseña única y más larga cuando
+pueda; las cuentas compartidas reducen la seguridad y la atribución de acciones.
+Si el usuario ya existe, no se modifica su contraseña ni su rol.
